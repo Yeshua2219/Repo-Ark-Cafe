@@ -1,0 +1,23 @@
+# Environment variables (keep secrets private)
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Logs and build outputs
+*.log
+npm-debug.log*
+dist/
+build/
+.next/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
