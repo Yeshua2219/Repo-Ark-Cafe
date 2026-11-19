@@ -1,0 +1,22 @@
+.role-badge {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  text-transform: capitalize;
+}
+
+.role-badge.admin {
+  color: #76502c;
+  background: #f3e3ca;
+}
+
+.role-badge.employee {
+  color: #355d9a;
+  background: #e5edfb;
+}
+
+.role-badge.customer {
+  color: #367546;
+  background: #e4f3e8;
+}
