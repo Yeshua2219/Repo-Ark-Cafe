@@ -1,5 +1,14 @@
+
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Search, Pencil, Trash2, X } from "lucide-react";
+import {
+  Plus,
+  Search,
+  Pencil,
+  Trash2,
+  X,
+  Eye,
+  EyeOff,
+} from "lucide-react";
 import api from "../services/api";
 import "../styles/users.css";
 
@@ -17,16 +26,24 @@ export default function Users() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(initialForm);
   const [showModal, setShowModal] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [modalError, setModalError] = useState("");
   const [saving, setSaving] = useState(false);
 
   const loadUsers = useCallback(async () => {
     try {
       const response = await api.get("/admin/users");
+
       setUsers(response.data);
       setError("");
-    } catch {
-      setError("Unable to load user accounts.");
+    } catch (err) {
+      console.error("Load users error:", err.response?.data || err);
+
+      setError(
+        err.response?.data?.message ||
+          "Unable to load user accounts."
+      );
     }
   }, []);
 
@@ -36,7 +53,9 @@ export default function Users() {
 
   const openAdd = () => {
     setEditing(null);
-    setForm(initialForm);
+    setForm({ ...initialForm });
+    setShowPassword(false);
+    setModalError("");
     setShowModal(true);
   };
 
@@ -50,18 +69,33 @@ export default function Users() {
       role: user.role,
     });
 
+    setShowPassword(false);
+    setModalError("");
     setShowModal(true);
+  };
+
+  const closeModal = () => {
+    if (saving) return;
+
+    setShowModal(false);
+    setModalError("");
+    setShowPassword(false);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
     setSaving(true);
-    setError("");
+    setModalError("");
 
-    const payload = { ...form };
+    const payload = {
+      name: form.name.trim(),
+      email: form.email.trim().toLowerCase(),
+      role: "employee",
+    };
 
-    if (editing !== null && !payload.password) {
-      delete payload.password;
+    if (form.password) {
+      payload.password = form.password;
     }
 
     try {
@@ -72,16 +106,35 @@ export default function Users() {
       }
 
       setShowModal(false);
+      setShowPassword(false);
+
       await loadUsers();
     } catch (err) {
-      setError(err.response?.data?.message || "Unable to save user.");
+      console.error("Save user error:", {
+        status: err.response?.status,
+        data: err.response?.data,
+        message: err.message,
+      });
+
+      setModalError(
+        err.response?.data?.message ||
+          `Unable to save user${
+            err.response?.status
+              ? ` (HTTP ${err.response.status})`
+              : ""
+          }.`
+      );
     } finally {
       setSaving(false);
     }
   };
 
   const deleteUser = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this account?")) {
+    if (
+      !window.confirm(
+        "Are you sure you want to delete this account?"
+      )
+    ) {
       return;
     }
 
@@ -89,7 +142,12 @@ export default function Users() {
       await api.delete(`/admin/users/${id}`);
       await loadUsers();
     } catch (err) {
-      setError(err.response?.data?.message || "Unable to delete user.");
+      console.error("Delete user error:", err);
+
+      setError(
+        err.response?.data?.message ||
+          "Unable to delete user."
+      );
     }
   };
 
@@ -105,10 +163,12 @@ export default function Users() {
     <div>
       <div className="page-heading">
         <h1>User Management</h1>
-        <p>Manage customer and employee accounts.</p>
+        <p>Manage administrator and employee accounts.</p>
       </div>
 
-      {error && <div className="error-message">{error}</div>}
+      {error && (
+        <div className="error-message">{error}</div>
+      )}
 
       <section className="panel">
         <div className="toolbar">
@@ -122,15 +182,21 @@ export default function Users() {
             />
           </div>
 
-          <select value={role} onChange={(e) => setRole(e.target.value)}>
+          <select
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+          >
             <option value="">All Roles</option>
-            <option value="customer">Customer</option>
             <option value="employee">Employee</option>
             <option value="admin">Admin</option>
           </select>
 
-          <button className="primary-button" onClick={openAdd}>
-            <Plus size={18} /> Add User
+          <button
+            className="primary-button"
+            onClick={openAdd}
+          >
+            <Plus size={18} />
+            Add User
           </button>
         </div>
 
@@ -152,7 +218,9 @@ export default function Users() {
                   <td>{user.email}</td>
 
                   <td>
-                    <span className={`role-badge ${user.role}`}>
+                    <span
+                      className={`role-badge ${user.role}`}
+                    >
                       {user.role}
                     </span>
                   </td>
@@ -171,7 +239,9 @@ export default function Users() {
                         <button
                           className="delete-button"
                           title="Delete user"
-                          onClick={() => deleteUser(user.id)}
+                          onClick={() =>
+                            deleteUser(user.id)
+                          }
                         >
                           <Trash2 size={16} />
                         </button>
@@ -183,7 +253,10 @@ export default function Users() {
 
               {!filteredUsers.length && (
                 <tr>
-                  <td colSpan="4" className="empty-state">
+                  <td
+                    colSpan="4"
+                    className="empty-state"
+                  >
                     No user accounts to display.
                   </td>
                 </tr>
@@ -197,18 +270,28 @@ export default function Users() {
         <div className="modal-overlay">
           <div className="modal">
             <div className="modal-header">
-              <h2>{editing !== null ? "Edit User" : "Add User"}</h2>
+              <h2>
+                {editing !== null
+                  ? "Edit User"
+                  : "Add User"}
+              </h2>
 
               <button
+                type="button"
                 className="close-button"
-                onClick={() => setShowModal(false)}
+                onClick={closeModal}
+                disabled={saving}
               >
                 <X size={23} />
               </button>
             </div>
 
             <form onSubmit={handleSubmit}>
-              {error && <div className="error-message">{error}</div>}
+              {modalError && (
+                <div className="error-message">
+                  {modalError}
+                </div>
+              )}
 
               <div className="form-group">
                 <label>Full Name</label>
@@ -216,7 +299,10 @@ export default function Users() {
                 <input
                   value={form.name}
                   onChange={(e) =>
-                    setForm({ ...form, name: e.target.value })
+                    setForm({
+                      ...form,
+                      name: e.target.value,
+                    })
                   }
                   required
                 />
@@ -229,7 +315,10 @@ export default function Users() {
                   type="email"
                   value={form.email}
                   onChange={(e) =>
-                    setForm({ ...form, email: e.target.value })
+                    setForm({
+                      ...form,
+                      email: e.target.value,
+                    })
                   }
                   required
                 />
@@ -237,31 +326,66 @@ export default function Users() {
 
               <div className="form-group">
                 <label>
-                  {editing !== null ? "New Password (Optional)" : "Password"}
+                  {editing !== null
+                    ? "New Password (Optional)"
+                    : "Password"}
                 </label>
 
-                <input
-                  type="password"
-                  minLength={8}
-                  value={form.password}
-                  onChange={(e) =>
-                    setForm({ ...form, password: e.target.value })
-                  }
-                  required={editing === null}
-                />
+                <div className="user-password-wrapper">
+                  <input
+                    type={
+                      showPassword
+                        ? "text"
+                        : "password"
+                    }
+                    minLength={8}
+                    value={form.password}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        password: e.target.value,
+                      })
+                    }
+                    autoComplete="new-password"
+                    required={editing === null}
+                  />
+
+                  <button
+                    type="button"
+                    className="user-password-toggle"
+                    onClick={() =>
+                      setShowPassword((prev) => !prev)
+                    }
+                    aria-label={
+                      showPassword
+                        ? "Hide password"
+                        : "Show password"
+                    }
+                    title={
+                      showPassword
+                        ? "Hide password"
+                        : "Show password"
+                    }
+                  >
+                    {showPassword ? (
+                      <EyeOff size={20} />
+                    ) : (
+                      <Eye size={20} />
+                    )}
+                  </button>
+                </div>
               </div>
 
               <div className="form-group">
                 <label>Account Role</label>
 
                 <select
-                  value={form.role}
-                  onChange={(e) =>
-                    setForm({ ...form, role: e.target.value })
-                  }
+                  value="employee"
+                  disabled
                 >
-                  <option value="employee">Employee</option>
-                  <option value="customer">Customer</option>
+                  <option value="employee">
+                    Employee
+                  </option>
                 </select>
               </div>
 
@@ -269,7 +393,8 @@ export default function Users() {
                 <button
                   type="button"
                   className="secondary-button"
-                  onClick={() => setShowModal(false)}
+                  onClick={closeModal}
+                  disabled={saving}
                 >
                   Cancel
                 </button>
@@ -279,7 +404,9 @@ export default function Users() {
                   className="primary-button"
                   disabled={saving}
                 >
-                  {saving ? "Saving..." : "Save User"}
+                  {saving
+                    ? "Saving..."
+                    : "Save User"}
                 </button>
               </div>
             </form>

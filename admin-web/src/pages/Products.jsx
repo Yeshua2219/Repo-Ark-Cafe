@@ -1,8 +1,17 @@
+
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Search, Pencil, Trash2, X } from "lucide-react";
+import {
+  Plus,
+  Search,
+  Pencil,
+  Trash2,
+  X,
+} from "lucide-react";
+
 import api from "../services/api";
 import "../styles/products.css";
 
+// Default Product Form
 const initialForm = {
   name: "",
   category_id: "",
@@ -12,149 +21,330 @@ const initialForm = {
 };
 
 export default function Products() {
+  // Product and Category Data
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
+
+  // Search and Filtering
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
-  const [form, setForm] = useState(initialForm);
+
+  // Form and Modal
+  const [form, setForm] = useState({ ...initialForm });
   const [editing, setEditing] = useState(null);
   const [showModal, setShowModal] = useState(false);
+
+  // Loading and Error States
   const [error, setError] = useState("");
+  const [modalError, setModalError] = useState("");
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  // =====================================
+  // LOAD PRODUCTS AND CATEGORIES
+  // =====================================
   const loadProducts = useCallback(async () => {
-    try {
-      const [productResponse, categoryResponse] = await Promise.all([
-        api.get("/admin/products"),
-        api.get("/categories"),
-      ]);
+    setLoading(true);
 
-      setProducts(productResponse.data);
-      setCategories(categoryResponse.data);
-      setError("");
-    } catch {
-      setError("Unable to load products and categories.");
+    const results = await Promise.allSettled([
+      api.get("/admin/products"),
+      api.get("/categories"),
+    ]);
+
+    const [productResult, categoryResult] = results;
+    const errors = [];
+
+    // Load Products
+    if (productResult.status === "fulfilled") {
+      const productData = productResult.value.data;
+
+      setProducts(
+        Array.isArray(productData) ? productData : []
+      );
+    } else {
+      const err = productResult.reason;
+
+      console.error("Products API error:", {
+        status: err.response?.status,
+        data: err.response?.data,
+        message: err.message,
+      });
+
+      errors.push(
+        err.response?.data?.message ||
+          "Unable to load products."
+      );
     }
+
+    // Load Categories
+    if (categoryResult.status === "fulfilled") {
+      const categoryData = categoryResult.value.data;
+
+      setCategories(
+        Array.isArray(categoryData) ? categoryData : []
+      );
+    } else {
+      const err = categoryResult.reason;
+
+      console.error("Categories API error:", {
+        status: err.response?.status,
+        data: err.response?.data,
+        message: err.message,
+      });
+
+      errors.push(
+        err.response?.data?.message ||
+          "Unable to load categories."
+      );
+    }
+
+    setError(errors.join(" "));
+    setLoading(false);
   }, []);
 
+  // =====================================
+  // LOAD DATA ON PAGE OPEN
+  // =====================================
   useEffect(() => {
     loadProducts();
   }, [loadProducts]);
 
+  // =====================================
+  // OPEN ADD PRODUCT MODAL
+  // =====================================
   const openAdd = () => {
     setEditing(null);
-    setForm(initialForm);
+    setForm({ ...initialForm });
+    setModalError("");
     setShowModal(true);
   };
 
+  // =====================================
+  // OPEN EDIT PRODUCT MODAL
+  // =====================================
   const openEdit = (product) => {
     setEditing(product.id);
 
     setForm({
-      name: product.name,
-      category_id: product.category_id,
+      name: product.name || "",
+      category_id: String(product.category_id ?? ""),
       description: product.description || "",
-      price: product.price,
-      is_available: product.is_available,
+      price: String(product.price ?? ""),
+      is_available: product.is_available ?? true,
     });
 
+    setModalError("");
     setShowModal(true);
   };
 
+  // =====================================
+  // CLOSE MODAL
+  // =====================================
+  const closeModal = () => {
+    if (saving) return;
+
+    setShowModal(false);
+    setModalError("");
+    setEditing(null);
+  };
+
+  // =====================================
+  // HANDLE FORM INPUT
+  // =====================================
+  const handleChange = (field, value) => {
+    setForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  // =====================================
+  // ADD OR UPDATE PRODUCT
+  // =====================================
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setSaving(true);
-    setError("");
+
+    if (saving) return;
+
+    setModalError("");
+
+    const name = form.name.trim();
+    const price = Number(form.price);
+
+    if (!name) {
+      setModalError("Product name is required.");
+      return;
+    }
+
+    if (!form.category_id) {
+      setModalError("Please select a category.");
+      return;
+    }
+
+    if (
+      form.price === "" ||
+      !Number.isFinite(price) ||
+      price < 0
+    ) {
+      setModalError("Please enter a valid price.");
+      return;
+    }
 
     const payload = {
-      ...form,
-      name: form.name.trim(),
-      price: Number(form.price),
+      name,
+      category_id: Number(form.category_id),
+      description: form.description.trim(),
+      price,
+      is_available: form.is_available,
     };
+
+    setSaving(true);
 
     try {
       if (editing !== null) {
-        await api.put(`/admin/products/${editing}`, payload);
+        await api.put(
+          `/admin/products/${editing}`,
+          payload
+        );
       } else {
         await api.post("/admin/products", payload);
       }
 
       setShowModal(false);
+      setEditing(null);
+      setForm({ ...initialForm });
+
       await loadProducts();
     } catch (err) {
-      setError(err.response?.data?.message || "Unable to save product.");
+      console.error("Save product error:", {
+        status: err.response?.status,
+        data: err.response?.data,
+        message: err.message,
+      });
+
+      setModalError(
+        err.response?.data?.message ||
+          "Unable to save product. Please try again."
+      );
     } finally {
       setSaving(false);
     }
   };
 
+  // =====================================
+  // DELETE PRODUCT
+  // =====================================
   const deleteProduct = async (id) => {
-    if (!window.confirm("Are you sure you want to remove this product?")) {
-      return;
-    }
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this product?"
+    );
+
+    if (!confirmed) return;
 
     try {
       await api.delete(`/admin/products/${id}`);
       await loadProducts();
     } catch (err) {
-      setError(err.response?.data?.message || "Unable to delete product.");
+      console.error("Delete product error:", err);
+
+      setError(
+        err.response?.data?.message ||
+          "Unable to delete product."
+      );
     }
   };
 
+  // =====================================
+  // FILTER PRODUCTS
+  // =====================================
   const filteredProducts = products.filter((product) => {
-    const matchesSearch = product.name
+    const matchesSearch = String(product.name || "")
       .toLowerCase()
       .includes(search.toLowerCase());
 
     const matchesCategory =
-      !category || String(product.category_id) === category;
+      !category ||
+      String(product.category_id) === String(category);
 
     return matchesSearch && matchesCategory;
   });
 
-  const categoryName = (id) =>
-    categories.find((item) => String(item.id) === String(id))?.name ||
-    "Uncategorized";
+  // =====================================
+  // GET CATEGORY NAME
+  // =====================================
+  const categoryName = (id) => {
+    const found = categories.find(
+      (item) => String(item.id) === String(id)
+    );
 
+    return found?.name || "Uncategorized";
+  };
+
+  // =====================================
+  // USER INTERFACE
+  // =====================================
   return (
     <div>
+      {/* PAGE HEADING */}
       <div className="page-heading">
         <h1>Product Management</h1>
         <p>Manage ARK Cafe food and beverages.</p>
       </div>
 
-      {error && <div className="error-message">{error}</div>}
+      {/* PAGE ERROR */}
+      {error && (
+        <div className="error-message">
+          {error}
+        </div>
+      )}
 
       <section className="panel">
+        {/* TOOLBAR */}
         <div className="toolbar">
           <div className="search-box">
             <Search size={19} />
 
             <input
+              type="text"
               placeholder="Search products..."
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) =>
+                setSearch(e.target.value)
+              }
             />
           </div>
 
+          {/* CATEGORY FILTER */}
           <select
             value={category}
-            onChange={(e) => setCategory(e.target.value)}
+            onChange={(e) =>
+              setCategory(e.target.value)
+            }
           >
             <option value="">All Categories</option>
 
             {categories.map((item) => (
-              <option key={item.id} value={item.id}>
+              <option
+                key={item.id}
+                value={String(item.id)}
+              >
                 {item.name}
               </option>
             ))}
           </select>
 
-          <button className="primary-button" onClick={openAdd}>
-            <Plus size={18} /> Add Product
+          {/* ADD PRODUCT */}
+          <button
+            type="button"
+            className="primary-button"
+            onClick={openAdd}
+          >
+            <Plus size={18} />
+            Add Product
           </button>
         </div>
 
+        {/* PRODUCT TABLE */}
         <div className="table-wrapper">
           <table>
             <thead>
@@ -168,47 +358,75 @@ export default function Products() {
             </thead>
 
             <tbody>
-              {filteredProducts.map((product) => (
-                <tr key={product.id}>
-                  <td>{product.name}</td>
-                  <td>{categoryName(product.category_id)}</td>
-                  <td>₱{Number(product.price).toFixed(2)}</td>
-
-                  <td>
-                    <span
-                      className={`status-badge ${
-                        product.is_available ? "active" : "inactive"
-                      }`}
-                    >
-                      {product.is_available ? "Available" : "Unavailable"}
-                    </span>
-                  </td>
-
-                  <td>
-                    <div className="action-buttons">
-                      <button
-                        className="edit-button"
-                        title="Edit product"
-                        onClick={() => openEdit(product)}
-                      >
-                        <Pencil size={16} />
-                      </button>
-
-                      <button
-                        className="delete-button"
-                        title="Delete product"
-                        onClick={() => deleteProduct(product.id)}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
+              {loading ? (
+                <tr>
+                  <td
+                    colSpan="5"
+                    className="empty-state"
+                  >
+                    Loading products...
                   </td>
                 </tr>
-              ))}
+              ) : filteredProducts.length > 0 ? (
+                filteredProducts.map((product) => (
+                  <tr key={product.id}>
+                    <td>{product.name}</td>
 
-              {!filteredProducts.length && (
+                    <td>
+                      {categoryName(product.category_id)}
+                    </td>
+
+                    <td>
+                      ₱{Number(product.price).toFixed(2)}
+                    </td>
+
+                    <td>
+                      <span
+                        className={`status-badge ${
+                          product.is_available
+                            ? "active"
+                            : "inactive"
+                        }`}
+                      >
+                        {product.is_available
+                          ? "Available"
+                          : "Unavailable"}
+                      </span>
+                    </td>
+
+                    <td>
+                      <div className="action-buttons">
+                        <button
+                          type="button"
+                          className="edit-button"
+                          title="Edit product"
+                          onClick={() =>
+                            openEdit(product)
+                          }
+                        >
+                          <Pencil size={16} />
+                        </button>
+
+                        <button
+                          type="button"
+                          className="delete-button"
+                          title="Delete product"
+                          onClick={() =>
+                            deleteProduct(product.id)
+                          }
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              ) : (
                 <tr>
-                  <td colSpan="5" className="empty-state">
+                  <td
+                    colSpan="5"
+                    className="empty-state"
+                  >
                     No products to display.
                   </td>
                 </tr>
@@ -218,66 +436,108 @@ export default function Products() {
         </div>
       </section>
 
+      {/* ADD / EDIT PRODUCT MODAL */}
       {showModal && (
         <div className="modal-overlay">
           <div className="modal">
+            {/* MODAL HEADER */}
             <div className="modal-header">
-              <h2>{editing !== null ? "Edit Product" : "Add Product"}</h2>
+              <h2>
+                {editing !== null
+                  ? "Edit Product"
+                  : "Add Product"}
+              </h2>
 
               <button
+                type="button"
                 className="close-button"
-                onClick={() => setShowModal(false)}
+                onClick={closeModal}
+                disabled={saving}
               >
                 <X size={23} />
               </button>
             </div>
 
             <form onSubmit={handleSubmit}>
-              {error && <div className="error-message">{error}</div>}
+              {/* MODAL ERROR */}
+              {modalError && (
+                <div className="error-message">
+                  {modalError}
+                </div>
+              )}
 
+              {/* PRODUCT NAME */}
               <div className="form-group">
                 <label>Product Name</label>
+
                 <input
+                  type="text"
                   value={form.name}
                   onChange={(e) =>
-                    setForm({ ...form, name: e.target.value })
+                    handleChange(
+                      "name",
+                      e.target.value
+                    )
                   }
+                  placeholder="Enter product name"
                   required
                 />
               </div>
 
+              {/* CATEGORY */}
               <div className="form-group">
                 <label>Category</label>
 
                 <select
                   value={form.category_id}
                   onChange={(e) =>
-                    setForm({ ...form, category_id: e.target.value })
+                    handleChange(
+                      "category_id",
+                      e.target.value
+                    )
                   }
                   required
                 >
-                  <option value="">Select Category</option>
+                  <option value="">
+                    Select Category
+                  </option>
 
                   {categories.map((item) => (
-                    <option key={item.id} value={item.id}>
+                    <option
+                      key={item.id}
+                      value={String(item.id)}
+                    >
                       {item.name}
                     </option>
                   ))}
                 </select>
+
+                {categories.length === 0 && (
+                  <small>
+                    No categories available.
+                    Please check the category API.
+                  </small>
+                )}
               </div>
 
+              {/* DESCRIPTION */}
               <div className="form-group">
                 <label>Description</label>
 
                 <textarea
-                  rows="3"
+                  rows={3}
                   value={form.description}
                   onChange={(e) =>
-                    setForm({ ...form, description: e.target.value })
+                    handleChange(
+                      "description",
+                      e.target.value
+                    )
                   }
+                  placeholder="Enter product description"
                 />
               </div>
 
+              {/* PRICE */}
               <div className="form-group">
                 <label>Price (PHP)</label>
 
@@ -287,19 +547,27 @@ export default function Products() {
                   step="0.01"
                   value={form.price}
                   onChange={(e) =>
-                    setForm({ ...form, price: e.target.value })
+                    handleChange(
+                      "price",
+                      e.target.value
+                    )
                   }
+                  placeholder="0.00"
                   required
                 />
               </div>
 
+              {/* AVAILABILITY */}
               <div className="checkbox-field">
                 <input
                   id="availability"
                   type="checkbox"
                   checked={form.is_available}
                   onChange={(e) =>
-                    setForm({ ...form, is_available: e.target.checked })
+                    handleChange(
+                      "is_available",
+                      e.target.checked
+                    )
                   }
                 />
 
@@ -308,11 +576,13 @@ export default function Products() {
                 </label>
               </div>
 
+              {/* MODAL BUTTONS */}
               <div className="modal-actions">
                 <button
                   type="button"
                   className="secondary-button"
-                  onClick={() => setShowModal(false)}
+                  onClick={closeModal}
+                  disabled={saving}
                 >
                   Cancel
                 </button>
@@ -320,9 +590,15 @@ export default function Products() {
                 <button
                   type="submit"
                   className="primary-button"
-                  disabled={saving}
+                  disabled={
+                    saving || categories.length === 0
+                  }
                 >
-                  {saving ? "Saving..." : "Save Product"}
+                  {saving
+                    ? "Saving..."
+                    : editing !== null
+                    ? "Update Product"
+                    : "Save Product"}
                 </button>
               </div>
             </form>
