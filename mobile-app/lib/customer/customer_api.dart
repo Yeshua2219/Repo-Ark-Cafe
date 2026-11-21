@@ -21,16 +21,28 @@ class CustomerApi {
   Future<dynamic> _request(String method, String path, [Object? body]) async {
     final uri = Uri.parse('$baseUrl$path');
     late http.Response response;
-    try {
-      response = switch (method) {
-        'GET' => await _client.get(uri, headers: _headers),
-        'POST' => await _client.post(uri, headers: _headers,
-            body: jsonEncode(body)),
-        _ => throw ArgumentError('Unsupported method $method'),
-      }.timeout(const Duration(seconds: 15));
-    } catch (error) {
-      throw Exception('Cannot connect to ARK Cafe backend: $error');
-    }
+
+try {
+  response = await switch (method) {
+    'GET' => _client.get(
+        uri,
+        headers: _headers,
+      ),
+    'POST' => _client.post(
+        uri,
+        headers: _headers,
+        body: jsonEncode(body),
+      ),
+    _ => throw ArgumentError(
+        'Unsupported method $method',
+      ),
+  }.timeout(const Duration(seconds: 15));
+} catch (error) {
+  throw Exception(
+    'Cannot connect to ARK Cafe backend: $error',
+  );
+}
+
     if (response.statusCode < 200 || response.statusCode >= 300) {
       String message = 'Server returned ${response.statusCode}';
       try {

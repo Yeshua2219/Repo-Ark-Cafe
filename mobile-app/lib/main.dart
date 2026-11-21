@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'customer/customer_app.dart';
 
@@ -13,7 +13,7 @@ Future<void> main() async {
     )))));
     return;
   }
-  await Supabase.initialize(url: url, anonKey: key);
+await Supabase.initialize(url: url, publishableKey: key);
   runApp(MaterialApp(
     debugShowCheckedModeBanner: false,
     title: 'ARK Cafe',
