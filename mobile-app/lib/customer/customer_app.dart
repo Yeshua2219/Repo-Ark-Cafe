@@ -159,11 +159,15 @@ class _CustomerAppState extends State<CustomerApp> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(value)));
   }
   Future<void> signIn(bool register) async {
-    final email = TextEditingController();
-    final password = TextEditingController();
-    final name = TextEditingController();
+    String email = '';
+    String password = '';
+    String name = '';
+    String? formError;
     bool busy = false;
-    await showDialog<void>(context: context, builder: (dialogContext) =>
+    final result = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) =>
       StatefulBuilder(builder: (dialogContext, update) => AlertDialog(
         scrollable: true,
         backgroundColor: ArkColors.cream,
@@ -219,16 +223,22 @@ class _CustomerAppState extends State<CustomerApp> {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (register) ...[
-                TextField(controller: name,
+                TextField(onChanged: (value) => name = value,
                   decoration: _arkField('Full name', Icons.person_outline)),
                 const SizedBox(height: 14),
               ],
-              TextField(controller: email,
+              TextField(onChanged: (value) => email = value,
                 keyboardType: TextInputType.emailAddress,
                 decoration: _arkField('Email address', Icons.email_outlined)),
               const SizedBox(height: 14),
-              TextField(controller: password, obscureText: true,
+              TextField(onChanged: (value) => password = value, obscureText: true,
                 decoration: _arkField('Password', Icons.lock_outline)),
+              if (formError != null) ...[
+                const SizedBox(height: 12),
+                Text(formError!, style: TextStyle(
+                  color: Theme.of(dialogContext).colorScheme.error,
+                )),
+              ],
             ],
           ),
         ),
@@ -236,37 +246,51 @@ class _CustomerAppState extends State<CustomerApp> {
           TextButton(onPressed: busy ? null : () => Navigator.pop(dialogContext),
             child: const Text('Cancel')),
           FilledButton(onPressed: busy ? null : () async {
-            if (!email.text.contains('@') || password.text.length < 6 ||
-                (register && name.text.trim().isEmpty)) {
-              message('Enter valid account details (password: 6+ characters).');
+            if (!email.trim().contains('@') || password.length < 6 ||
+                (register && name.trim().isEmpty)) {
+              update(() => formError =
+                'Enter valid account details (password: 6+ characters).');
               return;
             }
-            update(() => busy = true);
+            final route = ModalRoute.of(dialogContext);
+            update(() {
+              busy = true;
+              formError = null;
+            });
             try {
               if (register) {
-                await auth.signUp(
-                  email: email.text.trim(),
-                  password: password.text,
-                  data: {'full_name': name.text.trim()},
+                final response = await auth.signUp(
+                  email: email.trim(),
+                  password: password,
+                  data: {'full_name': name.trim()},
                 );
+                if (!dialogContext.mounted || route?.isCurrent != true) return;
+                Navigator.pop(dialogContext, response.session == null
+                  ? 'Registration submitted. Confirm your email, then sign in.'
+                  : 'Account created. You are signed in.');
               } else {
                 await auth.signInWithPassword(
-                  email: email.text.trim(), password: password.text);
+                  email: email.trim(), password: password);
+                if (!dialogContext.mounted || route?.isCurrent != true) return;
+                Navigator.pop(dialogContext, 'Signed in.');
               }
-              if (!dialogContext.mounted) return;
-              Navigator.pop(dialogContext);
-              message(register ? 'Registration submitted. Confirm email if required.'
-                : 'Signed in.');
-              setState(() {});
-            } catch (e) { message('Authentication failed: $e'); }
-            finally { if (dialogContext.mounted) update(() => busy = false); }
+            } catch (e) {
+              if (!dialogContext.mounted || route?.isCurrent != true) return;
+              update(() {
+                busy = false;
+                formError = e is AuthException
+                  ? e.message : 'Authentication failed. Please try again.';
+              });
+            }
           }, child: Text(register ? 'Register' : 'Login')),
         ],
       )));
-    email.dispose(); password.dispose(); name.dispose();
+    if (mounted && result != null) {
+      message(result);
+    }
   }
   void customize(Product product) {
-    final note = TextEditingController();
+    String note = '';
     int quantity = 1;
     showDialog<void>(context: context, builder: (ctx) =>
       StatefulBuilder(builder: (ctx, update) => AlertDialog(
@@ -278,7 +302,7 @@ class _CustomerAppState extends State<CustomerApp> {
           Text(money(product.price), style: const TextStyle(
             fontWeight: FontWeight.bold, color: _brown, fontSize: 20)),
           const SizedBox(height: 12),
-          TextField(controller: note, maxLength: 200,
+          TextField(onChanged: (value) => note = value, maxLength: 200,
             decoration: const InputDecoration(
               labelText: 'Customization / instructions',
               hintText: 'e.g. less sugar, no ice')),
@@ -298,9 +322,9 @@ class _CustomerAppState extends State<CustomerApp> {
           FilledButton(onPressed: () {
             setState(() {
               final existing = cart.where((e) => e.product.id == product.id &&
-                e.note == note.text.trim()).toList();
+                e.note == note.trim()).toList();
               if (existing.isEmpty) {
-                cart.add(CartItem(product, note.text.trim(), quantity));
+                cart.add(CartItem(product, note.trim(), quantity));
               } else { existing.first.quantity += quantity; }
             });
             Navigator.pop(ctx);
