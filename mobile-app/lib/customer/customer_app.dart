@@ -3,7 +3,43 @@ import 'package:material_ui/material_ui.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-const _brown = Color(0xFF79513B);
+/// Shared ARK Cafe design-system colors supplied by the project team.
+class ArkColors {
+  static const darkBrown = Color(0xFF392A23);
+  static const coffeeBrown = Color(0xFF876447);
+  static const warmBeige = Color(0xFFE8D7BD);
+  static const cream = Color(0xFFF7F5F0);
+  static const white = Color(0xFFFFFFFF);
+  static const mutedBrown = Color(0xFF928478);
+}
+
+const _brown = ArkColors.coffeeBrown;
+
+InputDecoration _arkField(String label, IconData icon, {String? hint}) =>
+    InputDecoration(
+      labelText: label,
+      hintText: hint,
+      prefixIcon: Icon(icon, color: ArkColors.coffeeBrown),
+      filled: true,
+      fillColor: ArkColors.white,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: ArkColors.warmBeige),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: ArkColors.warmBeige),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: ArkColors.coffeeBrown, width: 2),
+      ),
+    );
+
+RoundedRectangleBorder _arkCardShape() => RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(14),
+      side: const BorderSide(color: ArkColors.warmBeige),
+    );
 String money(num value) => '₱${value.toStringAsFixed(2)}';
 
 class Product {
@@ -33,8 +69,9 @@ class Api {
   static Future<dynamic> request(String path, {Object? body}) async {
     final token = Supabase.instance.client.auth.currentSession?.accessToken;
     final headers = <String, String>{
-      'Content-Type': 'application/json',
-      if (token != null) 'Authorization': 'Bearer $token',
+      'Accept': 'application/json',
+      if (body != null) 'Content-Type': 'application/json',
+      if (path != '/products' && token != null) 'Authorization': 'Bearer $token',
     };
     final uri = Uri.parse('$base$path');
     final response = await (body == null
@@ -128,19 +165,73 @@ class _CustomerAppState extends State<CustomerApp> {
     bool busy = false;
     await showDialog<void>(context: context, builder: (dialogContext) =>
       StatefulBuilder(builder: (dialogContext, update) => AlertDialog(
-        title: Text(register ? 'Create customer account' : 'Customer login'),
-        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min,
+        scrollable: true,
+        backgroundColor: ArkColors.cream,
+        surfaceTintColor: ArkColors.cream,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            if (register) TextField(controller: name,
-              decoration: const InputDecoration(labelText: 'Full name')),
-            const SizedBox(height: 12),
-            TextField(controller: email,
-              keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(labelText: 'Email')),
-            const SizedBox(height: 12),
-            TextField(controller: password, obscureText: true,
-              decoration: const InputDecoration(labelText: 'Password')),
-          ])),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+              decoration: BoxDecoration(
+                color: ArkColors.darkBrown,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Column(children: [
+                Icon(Icons.local_cafe_outlined,
+                    color: ArkColors.warmBeige, size: 46),
+                SizedBox(height: 10),
+                Text('ARK CAFE', style: TextStyle(
+                  color: ArkColors.white, fontWeight: FontWeight.bold,
+                  fontSize: 25, letterSpacing: 3,
+                )),
+                SizedBox(height: 6),
+                Text('CUSTOMER APP', style: TextStyle(
+                  color: ArkColors.warmBeige, fontSize: 11, letterSpacing: 3,
+                )),
+              ]),
+            ),
+            const SizedBox(height: 22),
+            const Text('CUSTOMER ACCESS', style: TextStyle(
+              color: ArkColors.coffeeBrown, fontSize: 11,
+              letterSpacing: 2, fontWeight: FontWeight.w600,
+            )),
+            const SizedBox(height: 8),
+            Text(register ? 'Create your account' : 'Welcome back!',
+              style: const TextStyle(
+                fontSize: 24, fontWeight: FontWeight.bold,
+                color: ArkColors.darkBrown,
+              )),
+            const SizedBox(height: 6),
+            Text(register ? 'Join ARK Cafe to start ordering.'
+                : 'Sign in to order your favorite coffee.',
+              style: const TextStyle(
+                fontSize: 14, color: ArkColors.coffeeBrown,
+              )),
+          ],
+        ),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (register) ...[
+                TextField(controller: name,
+                  decoration: _arkField('Full name', Icons.person_outline)),
+                const SizedBox(height: 14),
+              ],
+              TextField(controller: email,
+                keyboardType: TextInputType.emailAddress,
+                decoration: _arkField('Email address', Icons.email_outlined)),
+              const SizedBox(height: 14),
+              TextField(controller: password, obscureText: true,
+                decoration: _arkField('Password', Icons.lock_outline)),
+            ],
+          ),
+        ),
         actions: [
           TextButton(onPressed: busy ? null : () => Navigator.pop(dialogContext),
             child: const Text('Cancel')),
@@ -235,23 +326,47 @@ class _CustomerAppState extends State<CustomerApp> {
   }
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('☕ ARK Cafe'),
+    appBar: AppBar(
+      backgroundColor: ArkColors.darkBrown,
+      foregroundColor: ArkColors.white,
+      title: const Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.local_cafe_outlined, color: ArkColors.warmBeige, size: 30),
+        SizedBox(width: 10),
+        Text('ARK CAFE', style: TextStyle(
+          letterSpacing: 2, fontSize: 18, fontWeight: FontWeight.bold,
+        )),
+      ]),
       actions: [
         if (auth.currentUser == null) ...[
-          TextButton(onPressed: () => signIn(false), child: const Text('Login')),
-          TextButton(onPressed: () => signIn(true), child: const Text('Join')),
+          TextButton(onPressed: () => signIn(false),
+            style: TextButton.styleFrom(foregroundColor: ArkColors.white),
+            child: const Text('Login')),
+          TextButton(onPressed: () => signIn(true),
+            style: TextButton.styleFrom(foregroundColor: ArkColors.warmBeige),
+            child: const Text('Join')),
         ] else IconButton(
           tooltip: 'Account',
           icon: const Icon(Icons.account_circle_outlined),
           onPressed: () => setState(() => tab = 3)),
+        const SizedBox(width: 8),
       ]),
-    body: IndexedStack(index: tab, children: [
-      menuScreen(),
-      cartScreen(),
-      ordersScreen(),
-      profileScreen(),
-    ]),
+    body: SafeArea(
+      bottom: false,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 840),
+          child: IndexedStack(index: tab, children: [
+            menuScreen(),
+            cartScreen(),
+            ordersScreen(),
+            profileScreen(),
+          ]),
+        ),
+      ),
+    ),
     bottomNavigationBar: NavigationBar(
+      backgroundColor: ArkColors.white,
+      indicatorColor: ArkColors.warmBeige,
       selectedIndex: tab,
       onDestinationSelected: (i) {
         setState(() => tab = i);
@@ -272,27 +387,95 @@ class _CustomerAppState extends State<CustomerApp> {
       (p.name.toLowerCase().contains(search.toLowerCase()) ||
        p.description.toLowerCase().contains(search.toLowerCase()))).toList();
     return RefreshIndicator(onRefresh: refreshMenu, child: ListView(
-      padding: const EdgeInsets.all(16), children: [
-        const Text('Find your next favorite',
-          style: TextStyle(fontSize: 25, fontWeight: FontWeight.bold)),
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(20), children: [
+        Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: ArkColors.darkBrown,
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.local_cafe_outlined,
+                color: ArkColors.warmBeige, size: 34),
+              SizedBox(height: 16),
+              Text('WELCOME TO ARK CAFE', style: TextStyle(
+                fontSize: 11, letterSpacing: 2,
+                fontWeight: FontWeight.w600, color: ArkColors.warmBeige,
+              )),
+              SizedBox(height: 8),
+              Text('Find your next favorite', style: TextStyle(
+                fontSize: 25, fontWeight: FontWeight.bold,
+                color: ArkColors.white,
+              )),
+              SizedBox(height: 8),
+              Text('Explore the menu and order your favorites.',
+                style: TextStyle(color: ArkColors.warmBeige, fontSize: 14)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+        Row(children: [
+          const Expanded(child: Text('Our menu', style: TextStyle(
+            fontSize: 22, fontWeight: FontWeight.bold,
+            color: ArkColors.darkBrown,
+          ))),
+          IconButton(
+            tooltip: 'Refresh menu',
+            onPressed: loading ? null : refreshMenu,
+            icon: const Icon(Icons.refresh, color: ArkColors.coffeeBrown),
+          ),
+        ]),
         const SizedBox(height: 12),
         TextField(onChanged: (s) => setState(() => search = s),
-          decoration: const InputDecoration(
-            prefixIcon: Icon(Icons.search), hintText: 'Search the menu',
-            border: OutlineInputBorder())),
+          decoration: _arkField('Search the menu', Icons.search)),
         const SizedBox(height: 12),
         SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(
           children: categories.map((c) => Padding(
             padding: const EdgeInsets.only(right: 8),
             child: ChoiceChip(label: Text(c), selected: category == c,
+              selectedColor: ArkColors.warmBeige,
+              backgroundColor: ArkColors.white,
+              labelStyle: const TextStyle(color: ArkColors.darkBrown),
               onSelected: (_) => setState(() => category = c)))).toList())),
         const SizedBox(height: 16),
         if (loading) const Center(child: CircularProgressIndicator()),
-        if (error != null) Text('Menu unavailable: $error'),
+        if (!loading && error != null)
+          Card(
+            color: ArkColors.white,
+            elevation: 0,
+            shape: _arkCardShape(),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Menu unavailable', style: TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.bold,
+                    color: ArkColors.darkBrown,
+                  )),
+                  const SizedBox(height: 8),
+                  const Text('Check that the ARK Cafe backend is running, then try again.'),
+                  const SizedBox(height: 8),
+                  Text(error!, style: const TextStyle(fontSize: 12)),
+                  const SizedBox(height: 14),
+                  OutlinedButton(onPressed: refreshMenu,
+                    child: const Text('Try again')),
+                ],
+              ),
+            ),
+          ),
         if (!loading && error == null && filtered.isEmpty)
-          const Text('No matching menu items.'),
-        for (final product in filtered) Card(child: ListTile(
-          leading: const CircleAvatar(child: Icon(Icons.coffee)),
+          const Padding(padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(child: Text('No matching menu items.'))),
+        for (final product in filtered) Card(color: ArkColors.white, elevation: 0,
+          shape: _arkCardShape(), child: ListTile(
+          leading: const CircleAvatar(
+            backgroundColor: ArkColors.warmBeige,
+            foregroundColor: ArkColors.darkBrown,
+            child: Icon(Icons.coffee),
+          ),
           title: Text(product.name),
           subtitle: Text('${product.category} · ${product.description}'),
           trailing: Column(mainAxisAlignment: MainAxisAlignment.center,
@@ -313,7 +496,8 @@ class _CustomerAppState extends State<CustomerApp> {
         fontSize: 25, fontWeight: FontWeight.bold)),
       if (cart.isEmpty) const Padding(padding: EdgeInsets.all(32),
         child: Center(child: Text('Your cart is empty. Explore the menu!'))),
-      for (final item in cart) Card(child: ListTile(
+      for (final item in cart) Card(color: ArkColors.white, elevation: 0,
+          shape: _arkCardShape(), child: ListTile(
         title: Text(item.product.name),
         subtitle: Text('${item.note.isEmpty ? "No customization" : item.note}\n'
           '${money(item.subtotal)}'),
@@ -354,7 +538,8 @@ class _CustomerAppState extends State<CustomerApp> {
       if (!fetchingOrders && orders.isEmpty && auth.currentUser != null)
         const Text('No orders loaded yet.'),
       for (final raw in orders)
-        if (raw is Map) Card(child: ListTile(
+        if (raw is Map) Card(color: ArkColors.white, elevation: 0,
+          shape: _arkCardShape(), child: ListTile(
           title: Text('Order #${raw["id"] ?? "?"}'),
           subtitle: Text('Status: ${raw["order_status"] ?? "Pending"}\n'
             'Payment: ${raw["payment_status"] ?? "Pending"}'),
@@ -365,14 +550,42 @@ class _CustomerAppState extends State<CustomerApp> {
     ]);
   Widget profileScreen() => ListView(padding: const EdgeInsets.all(20),
     children: [
-      const Icon(Icons.account_circle, size: 72, color: _brown),
-      const SizedBox(height: 12),
-      Text(auth.currentUser?.email ?? 'Guest account',
-        textAlign: TextAlign.center, style: const TextStyle(fontSize: 20)),
+      const Text('Your account', style: TextStyle(
+        fontSize: 25, fontWeight: FontWeight.bold,
+        color: ArkColors.darkBrown,
+      )),
+      const SizedBox(height: 16),
+      Card(
+        color: ArkColors.white,
+        elevation: 0,
+        shape: _arkCardShape(),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(children: [
+            const CircleAvatar(
+              radius: 34, backgroundColor: ArkColors.warmBeige,
+              foregroundColor: ArkColors.darkBrown,
+              child: Icon(Icons.person_outline, size: 38),
+            ),
+            const SizedBox(height: 12),
+            Text(auth.currentUser?.email ?? 'Guest account',
+              textAlign: TextAlign.center, style: const TextStyle(
+                fontSize: 20, fontWeight: FontWeight.bold,
+                color: ArkColors.darkBrown,
+              )),
+            const SizedBox(height: 8),
+            Text(auth.currentUser == null
+              ? 'Sign in to place orders and view your history.'
+              : 'Manage your ARK Cafe customer account.',
+              textAlign: TextAlign.center),
+          ]),
+        ),
+      ),
       const SizedBox(height: 18),
       if (auth.currentUser == null) ...[
         FilledButton(onPressed: () => signIn(false),
           child: const Text('Sign in')),
+        const SizedBox(height: 12),
         OutlinedButton(onPressed: () => signIn(true),
           child: const Text('Create account')),
       ] else ...[
