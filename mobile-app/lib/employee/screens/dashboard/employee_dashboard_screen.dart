@@ -54,8 +54,9 @@ class EmployeeDashboardScreen extends StatelessWidget {
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              'SAMPLE DATA · UI preview only · Not connected '
-                              'to the backend',
+                              'DEMO MODE · Frontend testing only; no employee '
+                              'is authenticated. SAMPLE DATA · Not connected '
+                              'to the backend.',
                               style: TextStyle(
                                 color: colors.onSecondaryContainer,
                                 fontWeight: FontWeight.w600,

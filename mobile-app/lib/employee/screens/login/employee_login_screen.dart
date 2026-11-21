@@ -1,4 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
+import '../dashboard/employee_dashboard_screen.dart';
 
 class EmployeeLoginScreen extends StatefulWidget {
   const EmployeeLoginScreen({super.key});
@@ -110,6 +113,29 @@ class _EmployeeLoginScreenState extends State<EmployeeLoginScreen> {
                         child: Text('Sign in'),
                       ),
                     ),
+                    if (kDebugMode) ...[
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: () => Navigator.pushNamed(
+                          context,
+                          EmployeeDashboardScreen.routeName,
+                        ),
+                        icon: const Icon(Icons.science_outlined),
+                        label: const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          child: Text('Continue in Demo Mode'),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Frontend testing only. This does not authenticate '
+                        'an employee.',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: colors.onSurfaceVariant,
+                            ),
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     Text(
                       'Sign-in is a UI preview. Employee authentication is '
