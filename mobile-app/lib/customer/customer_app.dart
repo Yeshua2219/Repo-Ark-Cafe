@@ -456,6 +456,120 @@ class _CustomerAppState extends State<CustomerApp> {
       if (mounted) setState(() => submitting = false);
     }
   }
+  // Shows a real cart summary without submitting until the customer confirms.
+  // Online payments are deliberately preview-only until the team connects
+  // authorized payment instructions, proof storage, and verification.
+  Future<void> reviewCheckout() async {
+    if (cart.isEmpty || submitting) return;
+    final items = cart.map((item) =>
+      CartItem(item.product, item.note, item.quantity)).toList();
+    final total = items.fold<double>(0, (sum, item) => sum + item.subtotal);
+    var payment = 'cash';
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: ArkColors.cream,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, update) => SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              20, 0, 20, MediaQuery.viewInsetsOf(sheetContext).bottom + 20),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('Review checkout', style: TextStyle(
+                    fontSize: 23, fontWeight: FontWeight.bold,
+                    color: ArkColors.darkBrown)),
+                  const SizedBox(height: 8),
+                  const Text('Confirm your items and payment method.'),
+                  const SizedBox(height: 16),
+                  for (final item in items)
+                    Card(
+                      color: ArkColors.white,
+                      elevation: 0,
+                      shape: _arkCardShape(),
+                      child: ListTile(
+                        title: Text('${item.quantity} × ${item.product.name}'),
+                        subtitle: Text(item.note.isEmpty
+                          ? 'No customization' : item.note),
+                        trailing: Text(money(item.subtotal)),
+                      ),
+                    ),
+                  const SizedBox(height: 12),
+                  Text('Order total: ${money(total)}', style: const TextStyle(
+                    fontSize: 21, fontWeight: FontWeight.bold,
+                    color: ArkColors.darkBrown)),
+                  const SizedBox(height: 16),
+                  const Text('Select payment method',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Wrap(spacing: 8, runSpacing: 6, children: [
+                    ChoiceChip(
+                      label: const Text('Cash'),
+                      selected: payment == 'cash',
+                      onSelected: (_) => update(() => payment = 'cash'),
+                    ),
+                    ChoiceChip(
+                      label: const Text('Online · preview'),
+                      selected: payment == 'online',
+                      onSelected: (_) => update(() => payment = 'online'),
+                    ),
+                  ]),
+                  const SizedBox(height: 12),
+                  if (payment == 'cash') ...[
+                    const Text('Pay at the café. No payment is collected in this app.'),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Confirming creates an actual pending cash order once '
+                      'the database checkout function is deployed.',
+                      style: TextStyle(fontSize: 12)),
+                  ] else ...[
+                    const Text('Online payment preview',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    const Text('Payment QR or instructions will be provided '
+                      'after the team configures an authorized payment account.'),
+                    const SizedBox(height: 8),
+                    const Text('Payment reference: not available yet'),
+                    const SizedBox(height: 8),
+                    const OutlinedButton(
+                      onPressed: null,
+                      child: Text('Upload proof · coming soon'),
+                    ),
+                    const Text('No payment is requested or stored in preview mode.',
+                      style: TextStyle(fontSize: 12)),
+                  ],
+                  const SizedBox(height: 16),
+                  if (payment == 'cash')
+                    FilledButton(
+                      onPressed: () {
+                        Navigator.pop(sheetContext);
+                        unawaited(checkout('cash'));
+                      },
+                      child: const Text('Confirm cash order'),
+                    )
+                  else
+                    const FilledButton(
+                      onPressed: null,
+                      child: Text('Online checkout not available'),
+                    ),
+                  const SizedBox(height: 8),
+                  OutlinedButton(
+                    onPressed: () => Navigator.pop(sheetContext),
+                    child: const Text('Back to cart'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -650,15 +764,16 @@ class _CustomerAppState extends State<CustomerApp> {
       Text('Estimated total: ${money(total)}',
         style: const TextStyle(fontSize: 21, fontWeight: FontWeight.bold)),
       const SizedBox(height: 12),
-      const Text('Payment selection (no payment is processed in-app).'),
+      const Text('Review your items before placing an order.'),
       const SizedBox(height: 8),
-      FilledButton(onPressed: cart.isEmpty || submitting ? null : () => checkout('cash'),
-        child: Text(submitting ? 'Submitting order...' : 'Place order · Pay cash')),
+      FilledButton(
+        onPressed: cart.isEmpty || submitting ? null : reviewCheckout,
+        child: Text(submitting ? 'Submitting order...' : 'Review checkout'),
+      ),
       const SizedBox(height: 8),
-      const OutlinedButton(onPressed: null,
-        child: Text('Online payment · integration pending')),
-      const Text('Online payments will be enabled when payment proof and verification are connected.'),
-
+      const Text('Cash order submission needs the database checkout function. '
+        'Online payment is preview-only until verification is connected.',
+        style: TextStyle(fontSize: 12)),
     ]);
   }
   Widget ordersScreen() => ListView(padding: const EdgeInsets.all(16),
