@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:material_ui/material_ui.dart';
 import 'package:http/http.dart' as http;
@@ -86,6 +87,12 @@ class Api {
     }
     return jsonDecode(response.body);
   }
+  static Future<Map<String, dynamic>> syncProfile({String? name}) async {
+    final data = await request('/customer/profile', body: {
+      if (name != null) 'full_name': name,
+    });
+    return Map<String, dynamic>.from(data as Map);
+  }
   static Future<List<Product>> menu() async {
     final data = await request('/products') as List;
     return data.map((j) => Product.fromJson(
@@ -125,11 +132,46 @@ class _CustomerAppState extends State<CustomerApp> {
   String? error;
   List<dynamic> orders = [];
   bool fetchingOrders = false;
+  bool submitting = false;
+  bool syncingProfile = false;
+  Map<String, dynamic>? profile;
+  String? profileError;
+  String? profileUserId;
+  String? ordersError;
+
+  late final StreamSubscription<dynamic> _authSubscription;
+
+  @override
+  void dispose() {
+    _authSubscription.cancel();
+    super.dispose();
+  }
 
   @override
   void initState() {
     super.initState();
-    auth.onAuthStateChange.listen((_) { if (mounted) setState(() {}); });
+    profileUserId = auth.currentUser?.id;
+    _authSubscription = auth.onAuthStateChange.listen((_) {
+      if (!mounted) return;
+      final id = auth.currentUser?.id;
+      if (id != profileUserId) {
+        final previousUserId = profileUserId;
+        setState(() {
+          profileUserId = id;
+          profile = null;
+          profileError = null;
+          syncingProfile = false;
+          orders.clear();
+          fetchingOrders = false;
+          ordersError = null;
+          if (previousUserId != null) cart.clear();
+        });
+        if (id != null) syncProfile();
+      } else {
+        setState(() {});
+      }
+    });
+    if (profileUserId != null) syncProfile();
     refreshMenu();
   }
   Future<void> refreshMenu() async {
@@ -143,16 +185,66 @@ class _CustomerAppState extends State<CustomerApp> {
       if (mounted) setState(() { loading = false; });
     }
   }
+  Future<void> syncProfile({String? name}) async {
+    final userId = auth.currentUser?.id;
+    if (userId == null || syncingProfile) return;
+    setState(() { syncingProfile = true; profileError = null; });
+    try {
+      final result = await Api.syncProfile(name: name);
+      if (mounted && auth.currentUser?.id == userId) {
+        setState(() => profile = result);
+      }
+    } catch (e) {
+      if (mounted && auth.currentUser?.id == userId) {
+        setState(() => profileError = 'Could not save customer profile: $e');
+      }
+    } finally {
+      if (mounted && auth.currentUser?.id == userId) {
+        setState(() => syncingProfile = false);
+      }
+    }
+  }
+  Future<void> editProfile() async {
+    if (profile == null || syncingProfile) return;
+    var name = profile!['full_name']?.toString() ?? '';
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit your name'),
+        content: TextFormField(
+          initialValue: name,
+          maxLength: 150,
+          onChanged: (value) => name = value,
+          decoration: _arkField('Full name', Icons.person_outline),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel')),
+          FilledButton(onPressed: () {
+            if (name.trim().isNotEmpty) Navigator.pop(ctx, name.trim());
+          }, child: const Text('Save')),
+        ],
+      ),
+    );
+    if (mounted && result != null) await syncProfile(name: result);
+  }
   Future<void> refreshOrders() async {
-    if (auth.currentUser == null) return;
-    setState(() => fetchingOrders = true);
+    final userId = auth.currentUser?.id;
+    if (userId == null || fetchingOrders) return;
+    setState(() { fetchingOrders = true; ordersError = null; });
     try {
       final data = await Api.history();
-      if (mounted) setState(() => orders = data);
+      if (mounted && auth.currentUser?.id == userId) {
+        setState(() => orders = data);
+      }
     } catch (e) {
-      if (mounted) message(e.toString());
+      if (mounted && auth.currentUser?.id == userId) {
+        setState(() => ordersError = 'Unable to load orders: $e');
+      }
     } finally {
-      if (mounted) setState(() => fetchingOrders = false);
+      if (mounted && auth.currentUser?.id == userId) {
+        setState(() => fetchingOrders = false);
+      }
     }
   }
   void message(String value) {
@@ -325,7 +417,9 @@ class _CustomerAppState extends State<CustomerApp> {
                 e.note == note.trim()).toList();
               if (existing.isEmpty) {
                 cart.add(CartItem(product, note.trim(), quantity));
-              } else { existing.first.quantity += quantity; }
+              } else {
+                existing.first.quantity = (existing.first.quantity + quantity).clamp(1, 30).toInt();
+              }
             });
             Navigator.pop(ctx);
             message('Added to cart');
@@ -334,19 +428,33 @@ class _CustomerAppState extends State<CustomerApp> {
       )));
   }
   Future<void> checkout(String method) async {
-    if (cart.isEmpty) return;
+    if (cart.isEmpty || submitting || method != 'cash') return;
     if (auth.currentUser == null) {
       message('Please sign in before placing an order.');
       await signIn(false);
       return;
     }
+    if (profile == null) {
+      await syncProfile();
+      if (!mounted || profile == null) {
+        if (mounted) message('Please save your customer profile before ordering.');
+        return;
+      }
+    }
+    if (!mounted || submitting || cart.isEmpty) return;
+    final userId = auth.currentUser?.id;
+    setState(() => submitting = true);
     try {
       final id = await Api.placeOrder(cart, method);
-      if (!mounted) return;
+      if (!mounted || auth.currentUser?.id != userId) return;
       setState(() { cart.clear(); tab = 2; });
-      message('Order #$id submitted.');
+      message('Order #$id submitted. Payment is pending.');
       await refreshOrders();
-    } catch (e) { if (mounted) message('Unable to place order: $e'); }
+    } catch (e) {
+      if (mounted) message('Unable to confirm order: $e. Check order history before retrying.');
+    } finally {
+      if (mounted) setState(() => submitting = false);
+    }
   }
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -395,6 +503,7 @@ class _CustomerAppState extends State<CustomerApp> {
       onDestinationSelected: (i) {
         setState(() => tab = i);
         if (i == 2) refreshOrders();
+        if (i == 3 && profile == null) syncProfile();
       },
       destinations: const [
         NavigationDestination(icon: Icon(Icons.local_cafe_outlined), label: 'Menu'),
@@ -508,7 +617,7 @@ class _CustomerAppState extends State<CustomerApp> {
                 style: const TextStyle(fontWeight: FontWeight.bold)),
               const Icon(Icons.add_circle_outline, color: _brown),
             ]),
-          onTap: () => customize(product),
+          onTap: submitting ? null : () => customize(product),
         )),
       ],
     ));
@@ -527,12 +636,12 @@ class _CustomerAppState extends State<CustomerApp> {
           '${money(item.subtotal)}'),
         isThreeLine: true,
         trailing: SizedBox(width: 116, child: Row(children: [
-          IconButton(onPressed: () => setState(() {
+          IconButton(onPressed: submitting ? null : () => setState(() {
             if (item.quantity == 1) { cart.remove(item); }
             else { item.quantity--; }
           }), icon: const Icon(Icons.remove_circle_outline)),
           Text('${item.quantity}'),
-          IconButton(onPressed: item.quantity >= 30 ? null
+          IconButton(onPressed: submitting || item.quantity >= 30 ? null
             : () => setState(() => item.quantity++),
             icon: const Icon(Icons.add_circle_outline)),
         ])),
@@ -543,10 +652,13 @@ class _CustomerAppState extends State<CustomerApp> {
       const SizedBox(height: 12),
       const Text('Payment selection (no payment is processed in-app).'),
       const SizedBox(height: 8),
-      FilledButton(onPressed: cart.isEmpty ? null : () => checkout('cash'),
-        child: const Text('Place order · Pay cash')),
-      OutlinedButton(onPressed: cart.isEmpty ? null : () => checkout('online'),
-        child: const Text('Place order · Online payment pending verification')),
+      FilledButton(onPressed: cart.isEmpty || submitting ? null : () => checkout('cash'),
+        child: Text(submitting ? 'Submitting order...' : 'Place order · Pay cash')),
+      const SizedBox(height: 8),
+      const OutlinedButton(onPressed: null,
+        child: Text('Online payment · integration pending')),
+      const Text('Online payments will be enabled when payment proof and verification are connected.'),
+
     ]);
   }
   Widget ordersScreen() => ListView(padding: const EdgeInsets.all(16),
@@ -559,9 +671,13 @@ class _CustomerAppState extends State<CustomerApp> {
       if (auth.currentUser == null)
         const Text('Sign in to see your orders.'),
       if (fetchingOrders) const LinearProgressIndicator(),
-      if (!fetchingOrders && orders.isEmpty && auth.currentUser != null)
+      if (ordersError != null) ...[
+        Text(ordersError!),
+        OutlinedButton(onPressed: refreshOrders, child: const Text('Retry')),
+      ],
+      if (!fetchingOrders && ordersError == null && orders.isEmpty && auth.currentUser != null)
         const Text('No orders loaded yet.'),
-      for (final raw in orders)
+      for (final raw in auth.currentUser == null ? <dynamic>[] : orders)
         if (raw is Map) Card(color: ArkColors.white, elevation: 0,
           shape: _arkCardShape(), child: ListTile(
           title: Text('Order #${raw["id"] ?? "?"}'),
@@ -613,9 +729,21 @@ class _CustomerAppState extends State<CustomerApp> {
         OutlinedButton(onPressed: () => signIn(true),
           child: const Text('Create account')),
       ] else ...[
+        if (syncingProfile) const LinearProgressIndicator(),
+        if (profile != null) ...[
+          Text('Name: ${profile!['full_name']}'),
+          const Text('Account type: Customer'),
+          OutlinedButton(onPressed: syncingProfile ? null : editProfile,
+            child: const Text('Edit name')),
+        ],
+        if (profileError != null) ...[
+          Text(profileError!),
+          OutlinedButton(onPressed: syncingProfile ? null : () => syncProfile(),
+            child: const Text('Retry saving profile')),
+        ],
         const Text('Manage your customer login and saved orders here.'),
         const SizedBox(height: 16),
-        OutlinedButton(onPressed: () async {
+        OutlinedButton(onPressed: submitting ? null : () async {
           await auth.signOut();
           if (mounted) setState(() { orders.clear(); tab = 0; });
         }, child: const Text('Sign out')),
