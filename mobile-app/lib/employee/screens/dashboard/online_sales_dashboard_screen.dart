@@ -1,9 +1,10 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../../employee_api.dart';
+import '../login/employee_login_screen.dart';
 import '../orders/incoming_orders_screen.dart';
-import '../payments/payment_verification_screen.dart';
 
-class OnlineSalesDashboardScreen extends StatelessWidget {
+class OnlineSalesDashboardScreen extends StatefulWidget {
   const OnlineSalesDashboardScreen({
     super.key,
     this.orders,
@@ -15,36 +16,94 @@ class OnlineSalesDashboardScreen extends StatelessWidget {
   final List<IncomingOrder>? orders;
   final bool isLoading;
 
-  List<IncomingOrder> _onlineOrders() {
-    final onlineOrderNumbers = PaymentVerificationScreen.samplePayments
-        .map((payment) => payment.order.number)
-        .toSet();
-    final result = (orders ?? IncomingOrdersScreen.sampleOrders)
-        .where((order) => onlineOrderNumbers.contains(order.number))
-        .toList()
+  @override
+  State<OnlineSalesDashboardScreen> createState() =>
+      _OnlineSalesDashboardScreenState();
+}
+
+class _OnlineSalesDashboardScreenState
+    extends State<OnlineSalesDashboardScreen> {
+  final EmployeeApi _api = EmployeeApi();
+  List<IncomingOrder> _orders = [];
+  bool _loading = false;
+
+  bool get _isAuthenticated =>
+      EmployeeSession.token != null && EmployeeSession.token!.isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.orders != null) {
+      _orders = List.of(widget.orders!);
+    } else if (_isAuthenticated) {
+      _loadSales();
+    } else {
+      _orders = List.of(IncomingOrdersScreen.sampleOrders);
+    }
+  }
+
+  @override
+  void dispose() {
+    _api.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadSales() async {
+    if (_loading) return;
+    setState(() => _loading = true);
+    try {
+      final list = await _api.fetchOrders();
+      if (!mounted) return;
+      setState(() => _orders = list);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  List<IncomingOrder> _sortedOrders() {
+    final result = List<IncomingOrder>.from(_orders)
       ..sort((a, b) => b.orderedAt.compareTo(a.orderedAt));
     return result;
   }
 
   @override
   Widget build(BuildContext context) {
-    final sales = _onlineOrders();
+    final busy = widget.isLoading || _loading;
+    final sales = _sortedOrders();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Online sales')),
+      appBar: AppBar(
+        title: const Text('Online sales'),
+        actions: [
+          if (_isAuthenticated)
+            IconButton(
+              tooltip: 'Refresh',
+              onPressed: busy ? null : _loadSales,
+              icon: const Icon(Icons.refresh),
+            ),
+        ],
+      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 960),
-          child: _buildContent(context, sales),
+          child: _buildContent(context, sales, busy),
         ),
       ),
     );
   }
 
-  Widget _buildContent(BuildContext context, List<IncomingOrder> sales) {
-    if (isLoading) {
+  Widget _buildContent(
+    BuildContext context,
+    List<IncomingOrder> sales,
+    bool busy,
+  ) {
+    if (busy) {
       return const _SalesState(
-        message: 'Loading sample sales data...',
+        message: 'Loading sales data...',
         isLoading: true,
       );
     }
@@ -52,7 +111,7 @@ class OnlineSalesDashboardScreen extends StatelessWidget {
     if (sales.isEmpty) {
       return const _SalesState(
         icon: Icons.bar_chart_outlined,
-        message: 'There is no sample online sales data to display.',
+        message: 'There is no sales data to display.',
       );
     }
 
@@ -75,8 +134,10 @@ class OnlineSalesDashboardScreen extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const _SampleSalesNotice(),
-        const SizedBox(height: 16),
+        if (!_isAuthenticated && widget.orders == null) ...[
+          const _SampleSalesNotice(),
+          const SizedBox(height: 16),
+        ],
         LayoutBuilder(
           builder: (context, constraints) {
             final columns = constraints.maxWidth >= 700
@@ -95,7 +156,7 @@ class OnlineSalesDashboardScreen extends StatelessWidget {
                 SizedBox(
                   width: cardWidth,
                   child: _SalesMetric(
-                    label: 'Total online sales',
+                    label: 'Total sales',
                     value: _money(totalSales),
                     icon: Icons.payments_outlined,
                   ),
@@ -145,7 +206,7 @@ class OnlineSalesDashboardScreen extends StatelessWidget {
                 SizedBox(
                   width: summaryWidth,
                   child: _PeriodSummary(
-                    title: 'Today · demo sales',
+                    title: 'Today · sales',
                     amount: _total(todaySales),
                     orderCount: todaySales.length,
                   ),
@@ -153,7 +214,7 @@ class OnlineSalesDashboardScreen extends StatelessWidget {
                 SizedBox(
                   width: summaryWidth,
                   child: _PeriodSummary(
-                    title: 'This week · demo sales',
+                    title: 'This week · sales',
                     amount: _total(weekSales),
                     orderCount: weekSales.length,
                   ),
@@ -210,8 +271,7 @@ class _SampleSalesNotice extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'SAMPLE DATA · Demo order totals only. These figures are not '
-              'live or verified paid sales.',
+              'SAMPLE DATA · Local preview mode.',
               style: TextStyle(
                 color: colors.onSecondaryContainer,
                 fontWeight: FontWeight.w600,
@@ -298,7 +358,7 @@ class _PeriodSummary extends StatelessWidget {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    '$orderCount sample ${orderCount == 1 ? 'order' : 'orders'}',
+                    '$orderCount ${orderCount == 1 ? 'order' : 'orders'}',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
@@ -351,7 +411,7 @@ class _DailySalesChart extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Daily online sales · sample data',
+              'Daily sales',
               style: Theme.of(context)
                   .textTheme
                   .titleMedium
@@ -359,7 +419,7 @@ class _DailySalesChart extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              'Last 7 days · bar labels show sample amounts',
+              'Last 7 days',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),

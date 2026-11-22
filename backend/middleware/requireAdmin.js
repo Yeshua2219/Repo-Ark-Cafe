@@ -1,4 +1,3 @@
-
 const { createClient } = require("@supabase/supabase-js");
 const supabase = require("../config/database");
 
@@ -20,10 +19,12 @@ const requireAdmin = async (req, res, next) => {
       });
     }
 
-    // Validate the access token with Supabase Auth.
+    const authKey =
+      process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_SECRET_KEY;
+
     const authClient = createClient(
       process.env.SUPABASE_URL,
-      process.env.SUPABASE_PUBLISHABLE_KEY,
+      authKey,
       {
         auth: {
           persistSession: false,
@@ -43,7 +44,6 @@ const requireAdmin = async (req, res, next) => {
       });
     }
 
-    // Retrieve the user's role from the database.
     const { data: profile, error: profileError } =
       await supabase
         .from("users")

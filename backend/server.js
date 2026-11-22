@@ -1,4 +1,3 @@
-
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
@@ -19,6 +18,7 @@ app.use("/api/auth", require("./routes/authRoutes"));
 
 app.use("/api/products", require("./routes/productRoutes"));
 app.use("/api/customer", require("./routes/customerRoutes"));
+app.use("/api/admin/dashboard", requireAdmin, require("./routes/adminDashboardRoutes"));
 app.use("/api/admin/transactions", requireAdmin, require("./routes/adminTransactionRoutes"));
 app.use("/api/orders", require("./routes/orderRoutes"));
 app.use("/api/expenses", require("./routes/expenseRoutes"));
@@ -47,7 +47,6 @@ app.use(
   require("./routes/adminSettingsRoutes")
 );
 
-
 app.use((req, res) => {
   res.status(404).json({
     message: "API endpoint not found.",
@@ -61,7 +60,6 @@ app.use((err, req, res, next) => {
     message: "Internal server error.",
   });
 });
-
 
 const PORT = process.env.PORT || 5000;
 

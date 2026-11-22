@@ -1,5 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../../employee_api.dart';
+import '../login/employee_login_screen.dart';
 import '../orders/incoming_orders_screen.dart';
 
 class PaymentVerificationScreen extends StatefulWidget {
@@ -10,23 +12,6 @@ class PaymentVerificationScreen extends StatefulWidget {
   });
 
   static const routeName = '/employee-payment-verification';
-  static final samplePayments = [
-    PaymentVerificationRecord(
-      order: IncomingOrdersScreen.sampleOrders[0],
-      paymentMethod: 'GCash',
-      referenceNumber: 'SAMPLE-GCASH-1042',
-    ),
-    PaymentVerificationRecord(
-      order: IncomingOrdersScreen.sampleOrders[1],
-      paymentMethod: 'Maya',
-      referenceNumber: 'SAMPLE-MAYA-1041',
-    ),
-    PaymentVerificationRecord(
-      order: IncomingOrdersScreen.sampleOrders[2],
-      paymentMethod: 'GCash',
-      referenceNumber: 'SAMPLE-GCASH-1040',
-    ),
-  ];
 
   final List<PaymentVerificationRecord>? payments;
   final bool isLoading;
@@ -37,10 +22,71 @@ class PaymentVerificationScreen extends StatefulWidget {
 }
 
 class _PaymentVerificationScreenState extends State<PaymentVerificationScreen> {
-  late final List<PaymentVerificationRecord> _payments =
-      List.of(widget.payments ?? PaymentVerificationScreen.samplePayments);
+  final EmployeeApi _api = EmployeeApi();
+  List<PaymentVerificationRecord> _payments = [];
+  bool _loading = false;
+  bool _saving = false;
+
+  bool get _isAuthenticated =>
+      EmployeeSession.token != null && EmployeeSession.token!.isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.payments != null) {
+      _payments = List.of(widget.payments!);
+    } else if (_isAuthenticated) {
+      _loadPayments();
+    } else {
+      _payments = [
+        PaymentVerificationRecord(
+          order: IncomingOrdersScreen.sampleOrders.first,
+          paymentMethod: 'Cash',
+          referenceNumber: 'SAMPLE-1042',
+        ),
+      ];
+    }
+  }
+
+  @override
+  void dispose() {
+    _api.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadPayments() async {
+    if (_loading) return;
+    setState(() => _loading = true);
+    try {
+      final orders = await _api.fetchOrders();
+      if (!mounted) return;
+      setState(() {
+        _payments = orders.map((order) {
+          final status = switch (order.paymentStatus.toLowerCase()) {
+            'verified' || 'approved' || 'paid' =>
+              PaymentVerificationStatus.approved,
+            'rejected' => PaymentVerificationStatus.rejected,
+            _ => PaymentVerificationStatus.pending,
+          };
+          return PaymentVerificationRecord(
+            order: order,
+            paymentMethod: order.paymentMethod.toUpperCase(),
+            referenceNumber: order.referenceNumber,
+            status: status,
+          );
+        }).toList();
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 
   void _openDetails(int index) {
+    if (_saving) return;
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -52,42 +98,75 @@ class _PaymentVerificationScreenState extends State<PaymentVerificationScreen> {
     );
   }
 
-  void _applyDecision(
+  Future<void> _applyDecision(
     int index,
     PaymentVerificationStatus decision,
     BuildContext sheetContext,
-  ) {
-    setState(() {
-      _payments[index] = _payments[index].copyWith(status: decision);
-    });
+  ) async {
     Navigator.pop(sheetContext);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Demo only: marked ${decision.label.toLowerCase()}. '
-          'No backend was updated.',
+    final record = _payments[index];
+
+    if (!_isAuthenticated) {
+      setState(() {
+        _payments[index] = _payments[index].copyWith(status: decision);
+      });
+      return;
+    }
+
+    setState(() => _saving = true);
+    try {
+      final apiStatus =
+          decision == PaymentVerificationStatus.rejected ? 'rejected' : 'approved';
+      await _api.updatePaymentStatus(record.order.id, apiStatus);
+      if (!mounted) return;
+      setState(() {
+        _payments[index] = _payments[index].copyWith(status: decision);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Order #${record.order.number} payment marked ${decision.label.toLowerCase()}.',
+          ),
         ),
-      ),
-    );
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final busy = widget.isLoading || _loading;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Payment verification')),
+      appBar: AppBar(
+        title: const Text('Payment verification'),
+        actions: [
+          if (_isAuthenticated)
+            IconButton(
+              tooltip: 'Refresh',
+              onPressed: busy ? null : _loadPayments,
+              icon: const Icon(Icons.refresh),
+            ),
+        ],
+      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 800),
-          child: _buildContent(),
+          child: _buildContent(busy),
         ),
       ),
     );
   }
 
-  Widget _buildContent() {
-    if (widget.isLoading) {
+  Widget _buildContent(bool busy) {
+    if (busy) {
       return const _PaymentState(
-        message: 'Loading sample payments...',
+        message: 'Loading payments...',
         isLoading: true,
       );
     }
@@ -95,15 +174,17 @@ class _PaymentVerificationScreenState extends State<PaymentVerificationScreen> {
     if (_payments.isEmpty) {
       return const _PaymentState(
         icon: Icons.payments_outlined,
-        message: 'There are no sample payments to review.',
+        message: 'There are no payments to review.',
       );
     }
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const _SamplePaymentNotice(),
-        const SizedBox(height: 12),
+        if (!_isAuthenticated && widget.payments == null) ...[
+          const _SamplePaymentNotice(),
+          const SizedBox(height: 12),
+        ],
         for (var index = 0; index < _payments.length; index++)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
@@ -122,8 +203,8 @@ enum PaymentVerificationStatus { pending, approved, rejected }
 extension on PaymentVerificationStatus {
   String get label => switch (this) {
         PaymentVerificationStatus.pending => 'Pending verification',
-        PaymentVerificationStatus.approved => 'Approved · demo only',
-        PaymentVerificationStatus.rejected => 'Rejected · demo only',
+        PaymentVerificationStatus.approved => 'Approved',
+        PaymentVerificationStatus.rejected => 'Rejected',
       };
 }
 
@@ -174,8 +255,7 @@ class _SamplePaymentNotice extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'SAMPLE PAYMENTS · Demo references and placeholder only. '
-              'Approve/Reject actions do not update the backend.',
+              'SAMPLE PAYMENTS · Local preview mode.',
               style: TextStyle(
                 color: colors.onSecondaryContainer,
                 fontWeight: FontWeight.w600,
@@ -398,59 +478,8 @@ class _PaymentDetailsSheet extends StatelessWidget {
                   value: _money(payment.amount),
                   emphasize: true,
                 ),
-                const SizedBox(height: 20),
-                Text(
-                  'Payment proof',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: colors.surfaceContainerHighest,
-                    border: Border.all(color: colors.outlineVariant),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    children: [
-                      Icon(
-                        Icons.image_not_supported_outlined,
-                        size: 36,
-                        color: colors.onSurfaceVariant,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'SAMPLE PLACEHOLDER',
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'No customer payment proof is displayed.',
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: colors.onSurfaceVariant,
-                            ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Demo actions only. Approving or rejecting does not update '
-                  'the real backend.',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: colors.onSurfaceVariant,
-                      ),
-                ),
                 if (payment.status == PaymentVerificationStatus.pending) ...[
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
                   Wrap(
                     spacing: 12,
                     runSpacing: 8,

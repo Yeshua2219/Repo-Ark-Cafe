@@ -1,7 +1,7 @@
 const { createClient } = require("@supabase/supabase-js");
 const supabase = require("../config/database");
 
-const login = async (req, res) => {
+const authenticateWithRole = async (req, res, allowedRoles, deniedMessage) => {
   try {
     const { email, password } = req.body;
 
@@ -16,10 +16,12 @@ const login = async (req, res) => {
       });
     }
 
-    // Create a separate client for password authentication.
+    const authKey =
+      process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_SECRET_KEY;
+
     const authClient = createClient(
       process.env.SUPABASE_URL,
-      process.env.SUPABASE_PUBLISHABLE_KEY,
+      authKey,
       {
         auth: {
           persistSession: false,
@@ -28,7 +30,6 @@ const login = async (req, res) => {
       }
     );
 
-    // Verify credentials through Supabase Authentication.
     const { data, error } =
       await authClient.auth.signInWithPassword({
         email: email.trim(),
@@ -41,21 +42,15 @@ const login = async (req, res) => {
       });
     }
 
-    // Check the trusted role stored in public.users.
     const { data: user, error: userError } = await supabase
       .from("users")
       .select("id, full_name, email, role")
       .eq("id", data.user.id)
       .single();
 
-   console.log("Authenticated user ID:", data.user.id);
-    console.log("Database user:", user);
-    console.log("Database lookup error:", userError?.message);
-    console.log("Database lookup code:", userError?.code);
-
-    if (userError || !user || user.role !== "admin") {
+    if (userError || !user || !allowedRoles.includes(user.role)) {
       return res.status(403).json({
-        message: "Access denied. Administrators only."
+        message: deniedMessage
       });
     }
 
@@ -70,7 +65,7 @@ const login = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error("Admin login error:", error.message);
+    console.error("Login error:", error.message);
 
     return res.status(500).json({
       message: "An unexpected server error occurred."
@@ -78,4 +73,20 @@ const login = async (req, res) => {
   }
 };
 
-module.exports = { login };
+const login = (req, res) =>
+  authenticateWithRole(
+    req,
+    res,
+    ["admin"],
+    "Access denied. Administrators only."
+  );
+
+const employeeLogin = (req, res) =>
+  authenticateWithRole(
+    req,
+    res,
+    ["employee", "admin"],
+    "Access denied. Employees only."
+  );
+
+module.exports = { login, employeeLogin };
