@@ -1,6 +1,12 @@
 -- Review and run once in the existing ARK Cafe database by the database owner.
 -- No new database or RLS bypass. Only the trusted server may call this function.
 begin;
+-- The order tables are not exposed to browser roles. The trusted Express
+-- server needs these specific privileges for history and atomic checkout.
+grant select, insert on public.orders, public.order_items, public.payments to service_role;
+grant update (order_status) on public.orders to service_role;
+grant usage on sequence public.orders_id_seq, public.order_items_id_seq, public.payments_id_seq to service_role;
+
 create or replace function public.ark_create_cash_order(p_customer_id uuid, p_items jsonb)
 returns jsonb
 language plpgsql

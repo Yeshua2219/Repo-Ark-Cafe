@@ -64,7 +64,10 @@ router.get("/mine", verifyUser, requireRole("customer"), async (req, res) => {
     .select("*, order_items(*), payments(*)")
     .eq("customer_id", req.user.id)
     .order("created_at", { ascending: false });
-  if (error) return res.status(500).json({ message: "Unable to load orders." });
+  if (error) {
+    console.error("Customer order history query failed:", error.code || "unknown", error.message);
+    return res.status(500).json({ message: "Unable to load orders." });
+  }
   return res.json(data);
 });
 
