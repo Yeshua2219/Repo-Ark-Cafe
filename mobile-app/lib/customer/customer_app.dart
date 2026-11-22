@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:material_ui/material_ui.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'order_tracking.dart';
 
 /// Shared ARK Cafe design-system colors supplied by the project team.
 class ArkColors {
@@ -776,33 +777,192 @@ class _CustomerAppState extends State<CustomerApp> {
         style: TextStyle(fontSize: 12)),
     ]);
   }
-  Widget ordersScreen() => ListView(padding: const EdgeInsets.all(16),
+  // Read-only guide and live status details. Never simulates a saved order.
+  void showOrderTracking({Map<String, dynamic>? order}) {
+    final currentStatus = order?['order_status'];
+    final currentIndex = order == null ? -1 : OrderTracking.stageIndex(currentStatus);
+    final isCancelled = OrderTracking.isCancelled(currentStatus);
+    final items = order?['order_items'];
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: ArkColors.cream,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            20, 0, 20, MediaQuery.viewInsetsOf(sheetContext).bottom + 20),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  order == null ? 'How order tracking works'
+                    : 'Order #${order['id'] ?? '?'}',
+                  style: const TextStyle(
+                    fontSize: 23, fontWeight: FontWeight.bold,
+                    color: ArkColors.darkBrown),
+                ),
+                const SizedBox(height: 8),
+                if (order == null)
+                  const Text('These are the possible order stages. '
+                    'This guide does not create an order or simulate progress.')
+                else ...[
+                  Text('Current status: ${OrderTracking.label(currentStatus)}',
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  const Text('Status comes from your saved order. '
+                    'Refresh Order History to check for staff updates.'),
+                ],
+                if (isCancelled) ...[
+                  const SizedBox(height: 12),
+                  const Text('This order was cancelled. '
+                    'The normal tracking stages no longer advance.'),
+                ],
+                if (order != null && currentIndex < 0 && !isCancelled) ...[
+                  const SizedBox(height: 12),
+                  const Text('Unrecognized status. Refresh or contact café staff.'),
+                ],
+                const SizedBox(height: 18),
+                for (var i = 0; i < OrderTracking.stages.length; i++) ...[
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        i == currentIndex && !isCancelled
+                          ? Icons.radio_button_checked
+                          : i < currentIndex && !isCancelled
+                            ? Icons.check_circle_outline
+                            : Icons.radio_button_unchecked,
+                        color: i <= currentIndex && !isCancelled
+                          ? ArkColors.coffeeBrown : ArkColors.mutedBrown,
+                        size: 25,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(OrderTracking.label(OrderTracking.stages[i]),
+                              style: TextStyle(
+                                fontWeight: i == currentIndex
+                                  ? FontWeight.bold : FontWeight.normal,
+                                color: ArkColors.darkBrown)),
+                            Text(
+                              OrderTracking.description(OrderTracking.stages[i]),
+                              style: const TextStyle(
+                                fontSize: 12, color: ArkColors.coffeeBrown)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                ],
+                if (order != null) ...[
+                  const Divider(),
+                  Text('Payment method: ${order['payment_method'] ?? 'Unknown'}'),
+                  const SizedBox(height: 4),
+                  Text('Payment status: ${order['payment_status'] ?? 'Unknown'}'),
+                  const SizedBox(height: 4),
+                  Text('Total: ${money(
+                    double.tryParse(order['total_amount'].toString()) ?? 0)}',
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                  if (items is List && items.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    const Text('Ordered items',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                    for (final item in items)
+                      if (item is Map)
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text('${item['quantity'] ?? '?'} × '
+                            '${item['product_name'] ?? 'Product'}'),
+                          subtitle: Text(
+                            (item['customization'] ?? '').toString().isEmpty
+                              ? 'No customization'
+                              : item['customization'].toString()),
+                          trailing: Text(money(double.tryParse(
+                            item['unit_price'].toString()) ?? 0)),
+                        ),
+                  ],
+                ],
+                const SizedBox(height: 8),
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(sheetContext),
+                  child: const Text('Close'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget ordersScreen() => ListView(
+    padding: const EdgeInsets.all(16),
     children: [
       Row(children: [
         const Expanded(child: Text('Order history', style: TextStyle(
           fontSize: 25, fontWeight: FontWeight.bold))),
-        IconButton(onPressed: refreshOrders, icon: const Icon(Icons.refresh)),
+        IconButton(
+          tooltip: 'Refresh order history',
+          onPressed: fetchingOrders ? null : refreshOrders,
+          icon: const Icon(Icons.refresh),
+        ),
       ]),
+      const SizedBox(height: 8),
+      const Text('Tap an order to see its tracking details. '
+        'Refresh for the latest status from staff.'),
+      const SizedBox(height: 8),
+      OutlinedButton.icon(
+        onPressed: () => showOrderTracking(),
+        icon: const Icon(Icons.info_outline),
+        label: const Text('How order tracking works'),
+      ),
+      const SizedBox(height: 12),
       if (auth.currentUser == null)
         const Text('Sign in to see your orders.'),
-      if (fetchingOrders) const LinearProgressIndicator(),
+      if (fetchingOrders)
+        const LinearProgressIndicator(),
       if (ordersError != null) ...[
         Text(ordersError!),
-        OutlinedButton(onPressed: refreshOrders, child: const Text('Retry')),
+        OutlinedButton(
+          onPressed: fetchingOrders ? null : refreshOrders,
+          child: const Text('Retry'),
+        ),
       ],
-      if (!fetchingOrders && ordersError == null && orders.isEmpty && auth.currentUser != null)
-        const Text('No orders loaded yet.'),
-      for (final raw in auth.currentUser == null ? <dynamic>[] : orders)
-        if (raw is Map) Card(color: ArkColors.white, elevation: 0,
-          shape: _arkCardShape(), child: ListTile(
-          title: Text('Order #${raw["id"] ?? "?"}'),
-          subtitle: Text('Status: ${raw["order_status"] ?? "Pending"}\n'
-            'Payment: ${raw["payment_status"] ?? "Pending"}'),
-          isThreeLine: true,
-          trailing: Text(money(
-            double.tryParse(raw['total_amount'].toString()) ?? 0)),
-        )),
-    ]);
+      if (!fetchingOrders && ordersError == null &&
+          orders.isEmpty && auth.currentUser != null)
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 20),
+          child: Text('No orders loaded yet. '
+            'Once an order is saved, you can track it here.'),
+        ),
+      for (final raw in auth.currentUser == null || ordersError != null
+          ? <dynamic>[] : orders)
+        if (raw is Map)
+          Card(
+            color: ArkColors.white,
+            elevation: 0,
+            shape: _arkCardShape(),
+            child: ListTile(
+              title: Text('Order #${raw['id'] ?? '?'}'),
+              subtitle: Text(
+                'Status: ${OrderTracking.label(raw['order_status'])}\n'
+                'Payment: ${raw['payment_status'] ?? 'Unknown'}\n'
+                'Tap to track'),
+              isThreeLine: true,
+              trailing: Text(money(
+                double.tryParse(raw['total_amount'].toString()) ?? 0)),
+              onTap: () => showOrderTracking(
+                order: Map<String, dynamic>.from(raw)),
+            ),
+          ),
+    ],
+  );
   Widget profileScreen() => ListView(padding: const EdgeInsets.all(20),
     children: [
       const Text('Your account', style: TextStyle(
