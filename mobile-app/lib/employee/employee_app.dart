@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'screens/dashboard/employee_dashboard_screen.dart';
 import 'screens/dashboard/online_sales_dashboard_screen.dart';
