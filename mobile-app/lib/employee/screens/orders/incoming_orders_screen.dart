@@ -211,7 +211,7 @@ class IncomingOrder {
       status: _formatStatusLabel((json['order_status'] ?? json['status'] ?? 'pending').toString()),
       paymentMethod: (json['payment_method'] ?? 'cash').toString(),
       paymentStatus: (payment?['verification_status'] ?? json['payment_status'] ?? 'pending').toString(),
-      referenceNumber: (payment?['reference_number'] ?? 'REF-$rawId').toString(),
+      referenceNumber: (payment?['reference_number'] ?? 'Not provided').toString(),
       serverTotal: double.tryParse((json['total_amount'] ?? '').toString()),
       items: rawItems
           .whereType()

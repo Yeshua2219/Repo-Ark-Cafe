@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const supabase = require("../config/database");
 const { verifyUser, requireRole } = require("../middleware/verifyUser");
+const { validatePaymentDecision } = require("../validation/paymentVerification");
 
 // GET ALL ORDERS
 router.get("/", verifyUser, requireRole("admin", "employee"), async (req, res) => {
@@ -56,6 +57,44 @@ router.patch("/:id/status", verifyUser, requireRole("admin", "employee"), async 
         message: "Order status updated",
         order: data
     });
+});
+
+// Authorized staff-only cash verification. The SQL RPC updates both the
+// orders payment status and the corresponding payments record atomically.
+router.patch("/:id/payment", verifyUser, requireRole("admin", "employee"), async (req, res) => {
+  const { orderId, status, error: validationError } =
+    validatePaymentDecision(req.params.id, req.body);
+
+  if (validationError) {
+    return res.status(400).json({ message: validationError });
+  }
+
+  const { data, error } = await supabase.rpc("ark_verify_cash_payment", {
+    p_order_id: orderId,
+    p_decision: status,
+    p_staff_id: req.user.id,
+  });
+
+  if (error) {
+    console.error("Cash payment verification failed:", error.code || "unknown", error.message);
+    if (error.code === "PGRST202" || error.code === "42501") {
+      return res.status(503).json({
+        message: "Payment verification database setup is pending. Ask the backend maintainer to apply the SQL script.",
+      });
+    }
+    if (error.code === "P0001") {
+      return res.status(409).json({
+        message: "This cash payment could not be verified. Refresh the order and confirm it is still pending.",
+      });
+    }
+    return res.status(500).json({ message: "Unable to verify payment." });
+  }
+
+  return res.json({
+    message: status === "approved" ? "Cash receipt verified." : "Cash payment rejected.",
+    order: data.order,
+    payment: data.payment,
+  });
 });
 
 // Customer history is always scoped to the verified token owner.

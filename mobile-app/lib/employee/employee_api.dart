@@ -98,11 +98,20 @@ class EmployeeApi {
         'reloaded. Refresh the orders list before retrying.');
   }
 
-  /// The shared backend has no payment-verification endpoint yet.
-  /// Never pretend that approval or rejection was saved.
-  Future<void> updatePaymentStatus(int orderId, String status) async {
-    throw UnsupportedError('Payment verification is not yet connected '
-        'to a staff-authorized backend endpoint. No changes were saved.');
+  /// Staff confirmation is required before reporting cash as received.
+  /// The backend checks the authenticated employee/admin role again.
+  Future<void> updatePaymentStatus(
+    int orderId,
+    String status, {
+    bool cashReceived = false,
+  }) async {
+    if (status != 'approved' && status != 'rejected') {
+      throw ArgumentError('Invalid payment decision.');
+    }
+    await _request('PATCH', '/orders/$orderId/payment', body: {
+      'status': status,
+      'cash_received': cashReceived,
+    });
   }
 
   Future<List<ExpenseItem>> fetchExpenses() async {

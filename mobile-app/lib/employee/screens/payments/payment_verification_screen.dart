@@ -103,21 +103,61 @@ class _PaymentVerificationScreenState extends State<PaymentVerificationScreen> {
     PaymentVerificationStatus decision,
     BuildContext sheetContext,
   ) async {
-    Navigator.pop(sheetContext);
+    if (_saving || index < 0 || index >= _payments.length) return;
     final record = _payments[index];
 
     if (!_isAuthenticated) {
+      Navigator.pop(sheetContext);
       setState(() {
         _payments[index] = _payments[index].copyWith(status: decision);
       });
       return;
     }
 
+    if (record.paymentMethod.toLowerCase() != 'cash') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text(
+          'Online payment verification is not enabled yet.')),
+      );
+      return;
+    }
+
+    final isApproval = decision == PaymentVerificationStatus.approved;
+    final confirmed = await showDialog<bool>(
+      context: sheetContext,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(isApproval ? 'Confirm cash received?' : 'Reject cash payment?'),
+        content: Text(
+          isApproval
+              ? 'Only approve Order #${record.order.number} after the café '
+                'has physically received ${_money(record.amount)} in cash. '
+                'This will save the payment as Paid.'
+              : 'Reject payment for Order #${record.order.number}? '
+                'This will mark the saved payment as Rejected.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(isApproval ? 'Cash received, approve' : 'Confirm rejection'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    if (sheetContext.mounted) Navigator.pop(sheetContext);
+
     setState(() => _saving = true);
     try {
-      final apiStatus =
-          decision == PaymentVerificationStatus.rejected ? 'rejected' : 'approved';
-      await _api.updatePaymentStatus(record.order.id, apiStatus);
+      final apiStatus = isApproval ? 'approved' : 'rejected';
+      await _api.updatePaymentStatus(
+        record.order.id,
+        apiStatus,
+        cashReceived: isApproval,
+      );
       if (!mounted) return;
       setState(() {
         _payments[index] = _payments[index].copyWith(status: decision);
@@ -125,7 +165,8 @@ class _PaymentVerificationScreenState extends State<PaymentVerificationScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Order #${record.order.number} payment marked ${decision.label.toLowerCase()}.',
+            'Order #${record.order.number} payment marked '
+            '${decision.label.toLowerCase()}.',
           ),
         ),
       );
