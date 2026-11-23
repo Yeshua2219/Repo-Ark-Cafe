@@ -1,9 +1,8 @@
 const express = require("express");
-const { login } = require("../controllers/authController");
+const { login, employeeLogin } = require("../controllers/authController");
 
 const router = express.Router();
 
-// Test authentication route
 router.get("/test", (req, res) => {
   res.json({
     success: true,
@@ -11,7 +10,7 @@ router.get("/test", (req, res) => {
   });
 });
 
-// Admin login
 router.post("/login", login);
+router.post("/employee-login", employeeLogin);
 
 module.exports = router;

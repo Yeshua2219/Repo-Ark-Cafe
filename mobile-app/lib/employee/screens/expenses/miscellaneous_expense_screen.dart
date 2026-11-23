@@ -1,5 +1,8 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../../employee_api.dart';
+import '../login/employee_login_screen.dart';
+
 class MiscellaneousExpenseScreen extends StatefulWidget {
   const MiscellaneousExpenseScreen({
     super.key,
@@ -7,39 +10,6 @@ class MiscellaneousExpenseScreen extends StatefulWidget {
   });
 
   static const routeName = '/employee-miscellaneous-expenses';
-  static final DateTime _sampleDate = DateTime.now();
-
-  static final List<_ExpenseRecord> _expenses = [
-    _ExpenseRecord(
-      id: 1,
-      category: 'Supplies',
-      description: 'Coffee filters, takeout cups, and stirrers',
-      amount: 850,
-      date: _sampleDate,
-    ),
-    _ExpenseRecord(
-      id: 2,
-      category: 'Utilities',
-      description: 'Water and electricity bill',
-      amount: 2150,
-      date: _sampleDate,
-    ),
-    _ExpenseRecord(
-      id: 3,
-      category: 'Maintenance',
-      description: 'Espresso machine gasket replacement',
-      amount: 960,
-      date: _sampleDate,
-    ),
-    _ExpenseRecord(
-      id: 4,
-      category: 'Transportation',
-      description: 'Delivery of cleaning supplies',
-      amount: 320,
-      date: _sampleDate,
-    ),
-  ];
-  static int _nextExpenseId = 5;
 
   final bool isLoading;
 
@@ -50,10 +20,55 @@ class MiscellaneousExpenseScreen extends StatefulWidget {
 
 class _MiscellaneousExpenseScreenState
     extends State<MiscellaneousExpenseScreen> {
-  List<_ExpenseRecord> get _expenses => MiscellaneousExpenseScreen._expenses;
+  final EmployeeApi _api = EmployeeApi();
+  List<ExpenseItem> _expenses = [];
+  bool _loading = false;
 
-  Future<void> _openExpenseForm({_ExpenseRecord? existing}) async {
-    final result = await showModalBottomSheet<_ExpenseRecord>(
+  bool get _isAuthenticated =>
+      EmployeeSession.token != null && EmployeeSession.token!.isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_isAuthenticated) {
+      _loadExpenses();
+    } else {
+      _expenses = [
+        ExpenseItem(
+          id: 1,
+          category: 'Supplies',
+          description: 'Sample coffee filters',
+          amount: 850,
+          date: DateTime.now(),
+        ),
+      ];
+    }
+  }
+
+  @override
+  void dispose() {
+    _api.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadExpenses() async {
+    if (_loading) return;
+    setState(() => _loading = true);
+    try {
+      final list = await _api.fetchExpenses();
+      if (!mounted) return;
+      setState(() => _expenses = list);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _openExpenseForm({ExpenseItem? existing}) async {
+    final result = await showModalBottomSheet<ExpenseItem>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -61,43 +76,73 @@ class _MiscellaneousExpenseScreenState
     );
     if (result == null || !mounted) return;
 
-    if (existing == null) {
+    if (!_isAuthenticated) {
       setState(() {
-        _expenses.insert(
-          0,
-          result.copyWith(id: MiscellaneousExpenseScreen._nextExpenseId++),
-        );
+        if (existing == null) {
+          _expenses.insert(0, result);
+        } else {
+          final idx = _expenses.indexWhere((e) => e.id == existing.id);
+          if (idx != -1) _expenses[idx] = result.copyWith(id: existing.id);
+        }
       });
-      _showFeedback('Demo expense added to in-memory records.');
       return;
     }
 
-    final confirmed = await _confirm(
-      title: 'Update expense?',
-      message: 'Save these changes to the local demo record? '
-          'No backend data will be changed.',
-      confirmLabel: 'Update demo expense',
-    );
-    if (confirmed != true || !mounted) return;
-
-    final index = _expenses.indexWhere((expense) => expense.id == existing.id);
-    if (index == -1) return;
-    setState(() => _expenses[index] = result.copyWith(id: existing.id));
-    _showFeedback('Demo expense updated in memory only.');
+    try {
+      if (existing == null) {
+        final created = await _api.createExpense(
+          category: result.category,
+          description: result.description,
+          amount: result.amount,
+          date: result.date,
+        );
+        if (!mounted) return;
+        setState(() => _expenses.insert(0, created));
+        _showFeedback('Expense recorded.');
+      } else {
+        final updated = await _api.updateExpense(
+          id: existing.id,
+          category: result.category,
+          description: result.description,
+          amount: result.amount,
+          date: result.date,
+        );
+        if (!mounted) return;
+        final index = _expenses.indexWhere((expense) => expense.id == existing.id);
+        if (index != -1) {
+          setState(() => _expenses[index] = updated);
+        }
+        _showFeedback('Expense updated.');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      _showFeedback(e.toString());
+    }
   }
 
-  Future<void> _deleteExpense(_ExpenseRecord expense) async {
+  Future<void> _deleteExpense(ExpenseItem expense) async {
     final confirmed = await _confirm(
       title: 'Delete expense?',
-      message: 'Delete "${expense.description}" from the local demo records? '
-          'This cannot be undone in this app session.',
-      confirmLabel: 'Delete demo expense',
+      message: 'Delete "${expense.description}"?',
+      confirmLabel: 'Delete expense',
       destructive: true,
     );
     if (confirmed != true || !mounted) return;
 
-    setState(() => _expenses.removeWhere((item) => item.id == expense.id));
-    _showFeedback('Demo expense deleted from in-memory records.');
+    if (!_isAuthenticated) {
+      setState(() => _expenses.removeWhere((item) => item.id == expense.id));
+      return;
+    }
+
+    try {
+      await _api.deleteExpense(expense.id);
+      if (!mounted) return;
+      setState(() => _expenses.removeWhere((item) => item.id == expense.id));
+      _showFeedback('Expense deleted.');
+    } catch (e) {
+      if (!mounted) return;
+      _showFeedback(e.toString());
+    }
   }
 
   Future<bool?> _confirm({
@@ -144,10 +189,21 @@ class _MiscellaneousExpenseScreenState
         .where((expense) =>
             expense.date.year == now.year && expense.date.month == now.month)
         .toList();
+    final busy = widget.isLoading || _loading;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Miscellaneous expenses')),
-      floatingActionButton: widget.isLoading
+      appBar: AppBar(
+        title: const Text('Miscellaneous expenses'),
+        actions: [
+          if (_isAuthenticated)
+            IconButton(
+              tooltip: 'Refresh',
+              onPressed: busy ? null : _loadExpenses,
+              icon: const Icon(Icons.refresh),
+            ),
+        ],
+      ),
+      floatingActionButton: busy
           ? null
           : FloatingActionButton.extended(
               onPressed: () => _openExpenseForm(),
@@ -157,9 +213,9 @@ class _MiscellaneousExpenseScreenState
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 900),
-          child: widget.isLoading
+          child: busy
               ? const _ExpenseState(
-                  message: 'Loading sample expenses...',
+                  message: 'Loading expenses...',
                   isLoading: true,
                 )
               : _buildContent(currentMonthExpenses),
@@ -168,12 +224,14 @@ class _MiscellaneousExpenseScreenState
     );
   }
 
-  Widget _buildContent(List<_ExpenseRecord> currentMonthExpenses) {
+  Widget _buildContent(List<ExpenseItem> currentMonthExpenses) {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const _SampleExpenseNotice(),
-        const SizedBox(height: 16),
+        if (!_isAuthenticated) ...[
+          const _SampleExpenseNotice(),
+          const SizedBox(height: 16),
+        ],
         LayoutBuilder(
           builder: (context, constraints) {
             final columns = constraints.maxWidth >= 700
@@ -229,7 +287,7 @@ class _MiscellaneousExpenseScreenState
         if (_expenses.isEmpty)
           const _ExpenseState(
             icon: Icons.receipt_long_outlined,
-            message: 'No expenses recorded. Add a demo expense to get started.',
+            message: 'No expenses recorded yet.',
           )
         else
           for (final expense in _expenses)
@@ -239,38 +297,6 @@ class _MiscellaneousExpenseScreenState
               onDelete: () => _deleteExpense(expense),
             ),
       ],
-    );
-  }
-}
-
-class _ExpenseRecord {
-  const _ExpenseRecord({
-    required this.id,
-    required this.category,
-    required this.description,
-    required this.amount,
-    required this.date,
-  });
-
-  final int id;
-  final String category;
-  final String description;
-  final double amount;
-  final DateTime date;
-
-  _ExpenseRecord copyWith({
-    int? id,
-    String? category,
-    String? description,
-    double? amount,
-    DateTime? date,
-  }) {
-    return _ExpenseRecord(
-      id: id ?? this.id,
-      category: category ?? this.category,
-      description: description ?? this.description,
-      amount: amount ?? this.amount,
-      date: date ?? this.date,
     );
   }
 }
@@ -295,8 +321,7 @@ class _SampleExpenseNotice extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'SAMPLE DATA · Expense records are kept in memory for this app '
-              'session only. Nothing is saved to the backend.',
+              'SAMPLE DATA · Local preview mode.',
               style: TextStyle(
                 color: colors.onSecondaryContainer,
                 fontWeight: FontWeight.w600,
@@ -360,7 +385,7 @@ class _ExpenseHistoryCard extends StatelessWidget {
     required this.onDelete,
   });
 
-  final _ExpenseRecord expense;
+  final ExpenseItem expense;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
@@ -433,7 +458,7 @@ class _ExpenseHistoryCard extends StatelessWidget {
 class _ExpenseForm extends StatefulWidget {
   const _ExpenseForm({this.initialExpense});
 
-  final _ExpenseRecord? initialExpense;
+  final ExpenseItem? initialExpense;
 
   @override
   State<_ExpenseForm> createState() => _ExpenseFormState();
@@ -484,7 +509,7 @@ class _ExpenseFormState extends State<_ExpenseForm> {
     final amount = double.parse(_amountController.text.trim());
     Navigator.pop(
       context,
-      _ExpenseRecord(
+      ExpenseItem(
         id: widget.initialExpense?.id ?? 0,
         category: _category!,
         description: _descriptionController.text.trim(),
@@ -656,7 +681,7 @@ class _ExpenseState extends StatelessWidget {
   }
 }
 
-double _total(List<_ExpenseRecord> expenses) =>
+double _total(List<ExpenseItem> expenses) =>
     expenses.fold(0, (total, expense) => total + expense.amount);
 
 String _money(num amount) => '₱${amount.toStringAsFixed(2)}';

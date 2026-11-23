@@ -1,6 +1,15 @@
 import 'package:material_ui/material_ui.dart';
 
-class IncomingOrdersScreen extends StatelessWidget {
+import '../../employee_api.dart';
+import '../login/employee_login_screen.dart';
+
+String _formatStatusLabel(String raw) {
+  final clean = raw.trim();
+  if (clean.isEmpty) return 'Pending';
+  return clean[0].toUpperCase() + clean.substring(1).toLowerCase();
+}
+
+class IncomingOrdersScreen extends StatefulWidget {
   const IncomingOrdersScreen({
     super.key,
     this.orders,
@@ -10,33 +19,17 @@ class IncomingOrdersScreen extends StatelessWidget {
   static const routeName = '/employee-incoming-orders';
   static final sampleOrders = [
     IncomingOrder(
+      id: 1042,
       number: '1042',
       customerName: 'Mia Santos',
       orderedAt: DateTime.now().subtract(const Duration(minutes: 8)),
       status: 'Preparing',
+      paymentMethod: 'cash',
+      paymentStatus: 'paid',
+      referenceNumber: 'CASH-1042',
       items: const [
         OrderedProduct(name: 'Cappuccino', quantity: 1, unitPrice: 145),
         OrderedProduct(name: 'Butter croissant', quantity: 2, unitPrice: 90),
-      ],
-    ),
-    IncomingOrder(
-      number: '1041',
-      customerName: 'Paolo Reyes',
-      orderedAt: DateTime.now().subtract(const Duration(minutes: 17)),
-      status: 'Pending',
-      items: const [
-        OrderedProduct(name: 'Iced Spanish latte', quantity: 2, unitPrice: 165),
-        OrderedProduct(name: 'Banana bread', quantity: 1, unitPrice: 110),
-      ],
-    ),
-    IncomingOrder(
-      number: '1040',
-      customerName: 'Andrea Lim',
-      orderedAt: DateTime.now().subtract(const Duration(minutes: 31)),
-      status: 'Ready',
-      items: const [
-        OrderedProduct(name: 'Matcha latte', quantity: 1, unitPrice: 175),
-        OrderedProduct(name: 'Tuna melt', quantity: 1, unitPrice: 210),
       ],
     ),
   ];
@@ -45,43 +38,110 @@ class IncomingOrdersScreen extends StatelessWidget {
   final bool isLoading;
 
   @override
+  State<IncomingOrdersScreen> createState() => _IncomingOrdersScreenState();
+}
+
+class _IncomingOrdersScreenState extends State<IncomingOrdersScreen> {
+  final EmployeeApi _api = EmployeeApi();
+  List<IncomingOrder> _orders = [];
+  bool _loading = false;
+  String? _error;
+
+  bool get _isAuthenticated =>
+      EmployeeSession.token != null && EmployeeSession.token!.isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.orders != null) {
+      _orders = List.of(widget.orders!);
+    } else if (_isAuthenticated) {
+      _loadOrders();
+    } else {
+      _orders = List.of(IncomingOrdersScreen.sampleOrders);
+    }
+  }
+
+  @override
+  void dispose() {
+    _api.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadOrders() async {
+    if (_loading) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final list = await _api.fetchOrders();
+      if (!mounted) return;
+      setState(() => _orders = list);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final visibleOrders = orders ?? sampleOrders;
+    final busy = widget.isLoading || _loading;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Incoming orders')),
+      appBar: AppBar(
+        title: const Text('Incoming orders'),
+        actions: [
+          if (_isAuthenticated)
+            IconButton(
+              tooltip: 'Refresh',
+              onPressed: busy ? null : _loadOrders,
+              icon: const Icon(Icons.refresh),
+            ),
+        ],
+      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 760),
-          child: _buildContent(context, visibleOrders),
+          child: _buildContent(context, busy),
         ),
       ),
     );
   }
 
-  Widget _buildContent(
-      BuildContext context, List<IncomingOrder> visibleOrders) {
-    if (isLoading) {
+  Widget _buildContent(BuildContext context, bool busy) {
+    if (busy) {
       return const _OrdersState(
         icon: null,
-        message: 'Loading sample orders...',
+        message: 'Loading orders...',
         isLoading: true,
       );
     }
 
-    if (visibleOrders.isEmpty) {
+    if (_error != null) {
+      return _OrdersState(
+        icon: Icons.error_outline,
+        message: _error!,
+      );
+    }
+
+    if (_orders.isEmpty) {
       return const _OrdersState(
         icon: Icons.receipt_long_outlined,
-        message: 'There are no sample orders to display.',
+        message: 'There are no orders to display.',
       );
     }
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const _SampleDataNotice(),
-        const SizedBox(height: 12),
-        for (final order in visibleOrders)
+        if (!_isAuthenticated && widget.orders == null) ...[
+          const _SampleDataNotice(),
+          const SizedBox(height: 12),
+        ],
+        for (final order in _orders)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: _IncomingOrderCard(
@@ -105,27 +165,75 @@ class IncomingOrdersScreen extends StatelessWidget {
 
 class IncomingOrder {
   const IncomingOrder({
+    this.id = 0,
     required this.number,
     required this.customerName,
     required this.orderedAt,
     required this.status,
+    this.paymentMethod = 'cash',
+    this.paymentStatus = 'pending',
+    this.referenceNumber = '',
+    this.serverTotal,
     required this.items,
   });
 
+  final int id;
   final String number;
   final String customerName;
   final DateTime orderedAt;
   final String status;
+  final String paymentMethod;
+  final String paymentStatus;
+  final String referenceNumber;
+  final double? serverTotal;
   final List<OrderedProduct> items;
 
-  double get total =>
-      items.fold(0, (sum, item) => sum + item.quantity * item.unitPrice);
+  double get total {
+    if (serverTotal != null && serverTotal! > 0) return serverTotal!;
+    return items.fold(0, (sum, item) => sum + item.quantity * item.unitPrice);
+  }
 
-  IncomingOrder copyWith({String? status}) => IncomingOrder(
+  factory IncomingOrder.fromJson(Map<String, dynamic> json) {
+    final rawId = (json['order_id'] ?? json['id'] ?? 0).toString();
+    final parsedId = int.tryParse(rawId) ?? 0;
+    final rawItems = json['items'] is List
+        ? json['items'] as List
+        : (json['order_items'] is List ? json['order_items'] as List : []);
+    final payment = json['payment'] is Map ? json['payment'] as Map : null;
+
+    return IncomingOrder(
+      id: parsedId,
+      number: rawId,
+      customerName: (json['customer_name'] ?? 'Customer').toString(),
+      orderedAt:
+          DateTime.tryParse((json['created_at'] ?? '').toString()) ??
+              DateTime.now(),
+      status: _formatStatusLabel((json['order_status'] ?? json['status'] ?? 'pending').toString()),
+      paymentMethod: (json['payment_method'] ?? 'cash').toString(),
+      paymentStatus: (payment?['verification_status'] ?? json['payment_status'] ?? 'pending').toString(),
+      referenceNumber: (payment?['reference_number'] ?? 'REF-$rawId').toString(),
+      serverTotal: double.tryParse((json['total_amount'] ?? '').toString()),
+      items: rawItems
+          .whereType()
+          .map((e) => OrderedProduct.fromJson(Map<String, dynamic>.from(e)))
+          .toList(),
+    );
+  }
+
+  IncomingOrder copyWith({
+    String? status,
+    String? paymentStatus,
+  }) =>
+      IncomingOrder(
+        id: id,
         number: number,
         customerName: customerName,
         orderedAt: orderedAt,
         status: status ?? this.status,
+        paymentMethod: paymentMethod,
+        paymentStatus: paymentStatus ?? this.paymentStatus,
+        referenceNumber: referenceNumber,
+        serverTotal: serverTotal,
         items: items,
       );
 }
@@ -142,6 +250,17 @@ class OrderedProduct {
   final double unitPrice;
 
   double get lineTotal => quantity * unitPrice;
+
+  factory OrderedProduct.fromJson(Map<String, dynamic> json) {
+    return OrderedProduct(
+      name: (json['product_name'] ?? json['name'] ?? 'Item').toString(),
+      quantity: (json['quantity'] as num?)?.toInt() ?? 1,
+      unitPrice: double.tryParse(
+            (json['unit_price'] ?? json['price'] ?? 0).toString(),
+          ) ??
+          0,
+    );
+  }
 }
 
 class _SampleDataNotice extends StatelessWidget {
@@ -259,14 +378,15 @@ class OrderStatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final background = switch (status) {
+    final normalized = _formatStatusLabel(status);
+    final background = switch (normalized) {
       'Pending' => colors.primaryContainer,
       'Ready' => colors.tertiaryContainer,
       'Cancelled' => colors.errorContainer,
       'Completed' => colors.surfaceContainerHighest,
       _ => colors.secondaryContainer,
     };
-    final foreground = switch (status) {
+    final foreground = switch (normalized) {
       'Pending' => colors.onPrimaryContainer,
       'Ready' => colors.onTertiaryContainer,
       'Cancelled' => colors.onErrorContainer,
@@ -281,7 +401,7 @@ class OrderStatusBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
-        status,
+        normalized,
         style: Theme.of(context).textTheme.labelMedium?.copyWith(
               color: foreground,
               fontWeight: FontWeight.w700,
@@ -395,14 +515,6 @@ class _OrderDetailsSheet extends StatelessWidget {
                   label: 'Total',
                   value: _money(order.total),
                   emphasize: true,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Sample order · Not connected to live order data',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: colors.onSurfaceVariant,
-                      ),
                 ),
               ],
             ),

@@ -6,9 +6,13 @@ async function verifyUser(req, res, next) {
     const header = req.headers.authorization || "";
     const match = /^Bearer (\S+)$/i.exec(header);
     if (!match) return res.status(401).json({ message: "Sign in first." });
-    const client = createClient(process.env.SUPABASE_URL,
-      process.env.SUPABASE_PUBLISHABLE_KEY,
-      { auth: { persistSession: false, autoRefreshToken: false } });
+
+    const apiKey =
+      process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_SECRET_KEY;
+    const client = createClient(process.env.SUPABASE_URL, apiKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
     const { data, error } = await client.auth.getUser(match[1]);
     if (error || !data.user) {
       return res.status(401).json({ message: "Invalid or expired login." });
@@ -24,11 +28,16 @@ async function verifyUser(req, res, next) {
 function requireRole(...allowed) {
   return async (req, res, next) => {
     try {
-      const { data, error } = await supabase.from("users")
-        .select("id, role").eq("id", req.user.id).maybeSingle();
+      const { data, error } = await supabase
+        .from("users")
+        .select("id, role")
+        .eq("id", req.user.id)
+        .maybeSingle();
       if (error) throw error;
       if (!data || !allowed.includes(data.role)) {
-        return res.status(403).json({ message: "Account does not have permission." });
+        return res
+          .status(403)
+          .json({ message: "Account does not have permission." });
       }
       next();
     } catch (error) {
@@ -37,4 +46,5 @@ function requireRole(...allowed) {
     }
   };
 }
+
 module.exports = { verifyUser, requireRole };

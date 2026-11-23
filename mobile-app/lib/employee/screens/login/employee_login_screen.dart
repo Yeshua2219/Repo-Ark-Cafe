@@ -1,7 +1,15 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:material_ui/material_ui.dart';
 
+import '../../../customer/customer_api.dart';
 import '../dashboard/employee_dashboard_screen.dart';
+
+class EmployeeSession {
+  static String? token;
+  static Map<String, dynamic>? user;
+}
 
 class EmployeeLoginScreen extends StatefulWidget {
   const EmployeeLoginScreen({super.key});
@@ -12,17 +20,68 @@ class EmployeeLoginScreen extends StatefulWidget {
 
 class _EmployeeLoginScreenState extends State<EmployeeLoginScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
   bool _obscurePassword = true;
+  bool _isLoading = false;
 
-  void _submit() {
-    if (!_formKey.currentState!.validate()) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Employee authentication is not connected. No sign-in was attempted.',
-        ),
-      ),
-    );
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate() || _isLoading) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final uri = Uri.parse('${CustomerApi.baseUrl}/auth/employee-login');
+      final response = await http
+          .post(
+            uri,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'email': _emailController.text.trim(),
+              'password': _passwordController.text,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      final decoded = jsonDecode(response.body);
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        EmployeeSession.token = decoded['token']?.toString();
+        EmployeeSession.user = decoded['user'] is Map
+            ? Map<String, dynamic>.from(decoded['user'] as Map)
+            : null;
+
+        if (!mounted) return;
+        Navigator.pushReplacementNamed(
+          context,
+          EmployeeDashboardScreen.routeName,
+        );
+      } else {
+        final message = (decoded is Map && decoded['message'] != null)
+            ? decoded['message'].toString()
+            : 'Unable to sign in (${response.statusCode}).';
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Cannot connect to ARK Cafe backend: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   @override
@@ -67,6 +126,7 @@ class _EmployeeLoginScreenState extends State<EmployeeLoginScreen> {
                     ),
                     const SizedBox(height: 28),
                     TextFormField(
+                      controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
                       autofillHints: const [AutofillHints.username],
                       decoration: const InputDecoration(
@@ -81,6 +141,7 @@ class _EmployeeLoginScreenState extends State<EmployeeLoginScreen> {
                     ),
                     const SizedBox(height: 16),
                     TextFormField(
+                      controller: _passwordController,
                       obscureText: _obscurePassword,
                       autofillHints: const [AutofillHints.password],
                       decoration: InputDecoration(
@@ -107,10 +168,10 @@ class _EmployeeLoginScreenState extends State<EmployeeLoginScreen> {
                     ),
                     const SizedBox(height: 20),
                     FilledButton(
-                      onPressed: _submit,
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 12),
-                        child: Text('Sign in'),
+                      onPressed: _isLoading ? null : _submit,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        child: Text(_isLoading ? 'Signing in...' : 'Sign in'),
                       ),
                     ),
                     if (kDebugMode) ...[
@@ -136,15 +197,6 @@ class _EmployeeLoginScreenState extends State<EmployeeLoginScreen> {
                             ),
                       ),
                     ],
-                    const SizedBox(height: 16),
-                    Text(
-                      'Sign-in is a UI preview. Employee authentication is '
-                      'not connected.',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: colors.onSurfaceVariant,
-                          ),
-                    ),
                   ],
                 ),
               ),
