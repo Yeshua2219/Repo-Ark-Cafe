@@ -1,0 +1,51 @@
+.settings-fieldset {
+  border: none;
+  min-width: 0;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+.settings-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #876447;
+  margin-bottom: 25px;
+}
+
+.settings-title h3 {
+  margin: 0;
+}
+
+.qr-preview {
+  min-height: 230px;
+  border: 2px dashed #ded3c5;
+  border-radius: 10px;
+  margin: 20px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 20px;
+  color: #928478;
+}
+
+.qr-preview img {
+  width: 190px;
+  max-width: 100%;
+}
+
+.save-settings-button {
+  margin-top: 25px;
+  margin-left: auto;
+}
+
+@media (max-width: 950px) {
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+}
