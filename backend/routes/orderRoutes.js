@@ -31,7 +31,9 @@ router.patch("/:id/status", verifyUser, requireRole("admin", "employee"), async 
     const allowedStatuses = [
         "confirmed",
         "preparing",
-        "ready"
+        "ready",
+        "completed",
+        "cancelled"
     ];
 
     if (!allowedStatuses.includes(status)) {
